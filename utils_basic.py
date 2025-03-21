@@ -9,7 +9,21 @@ from openfermion import commutator, anticommutator, get_fermion_operator
 from openfermion import get_sparse_operator as gso
 import random
 from numpy.random import uniform
-from math import ceil
+from math import ceil, log
+
+def print_state(psi, threshold=1e-12):
+    """
+    gives a sort-of nice print out of the statevector psi
+    """
+    Nqubits = int(log(len(psi), 2))
+    for i in range(len(psi)):
+        if np.abs(psi[i]) > 1e-12:
+            bin_string = bin(i)[2:]
+            bin_string = '0' * (Nqubits - len(bin_string)) + bin_string
+            print(bin_string, np.round(psi[i], 6))
+
+    return None
+
 
 def copy_hamiltonian(H):
     """

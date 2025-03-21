@@ -4,24 +4,8 @@ from openfermion import QubitOperator
 from utils_fc import obtain_polynomial_representation_of_fc_hamiltonian
 from qiskit.quantum_info import SparsePauliOp
 import numpy as np
-from qiskit.circuit import Parameter
 from qiskit.circuit.library import RYGate
-from math import log
-
-# misc functions
-
-def print_state(psi, threshold=1e-12):
-    """
-    gives a sort-of nice print out of the statevector psi
-    """
-    Nqubits = int(log(len(psi), 2))
-    for i in range(len(psi)):
-        if np.abs(psi[i]) > 1e-12:
-            bin_string = bin(i)[2:]
-            bin_string = '0' * (Nqubits - len(bin_string)) + bin_string
-            print(bin_string, np.round(psi[i], 6))
-
-    return None
+from qiskit.primitives import StatevectorSampler
 
 # functions for measuring QWC Hamiltonians and processing measurement results
 
@@ -86,6 +70,11 @@ def append_measurement_circuit(qc, P, N, include_measurements=True):
         1. an Openfermion QubitOperator with a single term
         2. a string like "XXYZIIYZI" which describes a Pauli operator
            the string is little endian
+
+    appends the circuit for measuring P to the end of qc
+
+    note: this circuit by default will put measurement gates on all the qubits for simplicity.
+          maybe for hardware-error reasons it makes more sense to only measure the necessary qubits?
     """
     if isinstance(P, QubitOperator):
         P = convert_to_pauli_string(P, N)
@@ -220,6 +209,31 @@ def binary_string_to_parity_list_big_endian(bin_string, irrelevant_qubits=None):
         
     return parity_list[::-1]
 
+def estimate_qwc_hamiltonian_expectation_value(psi_qc, H, Nqubits, Nshots):
+    """
+    inputs
+        1. psi_qc  : quantum circuit for preparing psi
+        2. H       : Openfermion-QubitOperator Hamiltonian which is assumed to be QWC
+        3. Nqubits : number of qubits
+        4. Nshots  : number of measurements
+
+    output
+        an estimate of <psi|H|psi> obtained by measuring H a total of Nshots times
+    """
+    Psig, _, poly, irr_qubits = process_qwc_hamiltonian_for_measurements(H, Nqubits)
+    qc_for_measurement        = psi_qc.copy()
+    append_measurement_circuit(qc_for_measurement, Psig, Nqubits)
+
+    sampler             = StatevectorSampler()
+    measurement_results = sampler.run([qc_for_measurement], shots=Nshots) 
+    counts              = measurement_results.result()[0].data.meas.get_counts()
+
+    ev_est = 0
+    for bin_string, count in counts.items():
+        v       = binary_string_to_parity_list_big_endian(bin_string, irr_qubits)
+        ev_est += poly(v) * (count / Nshots)
+
+    return ev_est
 
 # functions for preparing initial states
 
@@ -228,7 +242,7 @@ def append_hf_prepare_circuit(qc, Ne):
     qc : qiskit QuantumCircuit
     Ne : number of electrons
 
-    appends circuit for preparing HF state |1>^{\otimes Ne} \otimes |0>^{\otimes Nqubits - Ne}
+    appends circuit for preparing HF state |1>^{Ne} \otimes |0>^{Nqubits - Ne}
     """
     for i in range(Ne):
         qc.x(i)
