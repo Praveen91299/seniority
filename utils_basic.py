@@ -8,7 +8,7 @@ from openfermion import hermitian_conjugated as dagger
 from openfermion import commutator, anticommutator, get_fermion_operator
 from openfermion import get_sparse_operator as gso
 import random
-from numpy.random import uniform
+from numpy.random import uniform, randint
 from math import ceil, log
 
 def print_state(psi, threshold=1e-12):
@@ -23,7 +23,6 @@ def print_state(psi, threshold=1e-12):
             print(bin_string, np.round(psi[i], 6))
 
     return None
-
 
 def copy_hamiltonian(H):
     """
@@ -52,6 +51,21 @@ def random_pauli_term(Nqubits):
             term_tuple.append( (i, current_letter) )
 
     return tuple(term_tuple), Q(tuple(term_tuple))
+
+def random_bin_list(N):
+    """
+    returns a random binary list (like [0,1,1,0,0,1,1,1,1,0]) of length N
+    """
+    return [random.randint(0, 1) for _ in range(N)]
+
+def state_from_bin_list(bin, N=None):
+    if N is None:
+        N = len(bin)
+    
+    psi                = np.zeros(2 ** N)
+    b_str              = ''.join('1' if b else '0' for b in bin)
+    psi[int(b_str, 2)] = 1.0
+    return psi
 
 def is_commuting(A, B):
     """
