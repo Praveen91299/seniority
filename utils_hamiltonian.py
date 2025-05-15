@@ -2,7 +2,7 @@ import numpy as np
 from openfermion import (
     QubitOperator,
 )
-from utils_basic import copy_hamiltonian, shift_hamiltonian_qubits
+from utils_basic import copy_hamiltonian, shift_hamiltonian_qubits, clifford
 
 
 sigmax = np.array([
@@ -157,3 +157,40 @@ def taper_hamiltonian(H, v, w, shift_to_zero=True):
         return shift_hamiltonian_qubits(H_tapered, N)
     return H_tapered
 
+def CNOT_clifford_operator(i, j):
+    """
+    returns Clifford operator implementation of exp(-i * pi / 4) * CNOT(i,j)
+
+    the data structure for a Clifford operator is a list of operators of the form (A + B) / sqrt(2), where A and B anticommute
+    """
+
+    CNOT_clifford = []
+    CNOT_clifford.append(clifford(QubitOperator(f'Y{j}'), QubitOperator(f'Z{j}')))
+    CNOT_clifford.append(clifford(QubitOperator(f'X{i} Y{j}'), QubitOperator(f'Y{i} Y{j}')))
+    CNOT_clifford.append(clifford(QubitOperator(f'X{i}'), QubitOperator(f'Y{i} X{j}')))
+
+    return CNOT_clifford
+
+def seniority_solving_clifford_operator(Nqubits):
+    """
+    returns Clifford operator U such that U z_2i z_2i+1 U^T = z_2i for all 0 <= i <= Nqubits-1
+
+    the data structure for a Clifford operator is a list of operators of the form (A + B) / sqrt(2), where A and B anticommute
+    """
+    assert Nqubits % 2 == 0
+    solving_clifford = []
+    for i in range(Nqubits // 2):
+        solving_clifford += CNOT_clifford_operator(2*i + 1, 2*i)
+    return solving_clifford
+
+def append_seniority_solving_clifford_circuit(qc, Nqubits):
+    """
+    appends circuit U such that U z_2i z_2i+1 U^T = z_2i for all 0 <= i <= Nqubits-1 to qc
+    
+    Due to different endianness of qiskit compared with openfermion, the control and target qubits are reversed
+    """
+    assert Nqubits % 2 == 0
+    for i in range(Nqubits // 2):
+        qc.cx(2*i+1, 2*i)
+
+    return None
