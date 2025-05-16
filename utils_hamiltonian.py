@@ -4,7 +4,6 @@ from openfermion import (
 )
 from utils_basic import copy_hamiltonian, shift_hamiltonian_qubits, clifford
 
-
 sigmax = np.array([
     [0.0, 1.0],
     [1.0, 0.0]
@@ -194,3 +193,41 @@ def append_seniority_solving_clifford_circuit(qc, Nqubits):
         qc.cx(2*i+1, 2*i)
 
     return None
+
+def group_odds_and_evens(H, Nqubits):
+    """
+    returns new H with reordered qubits 01234567... -> 0246...1357...
+    """
+    evens        = [n for n in range(Nqubits) if n % 2 == 0]
+    odds         = [n for n in range(Nqubits) if n % 2 == 1]
+    neworder     = evens + odds
+    reorder_dict = {v : k for k,v in enumerate(neworder)}
+    
+    Hreordered = QubitOperator()
+    for term, coef in H.terms.items():
+        newterm = []
+        for op in term:
+            newterm.append((reorder_dict[op[0]], op[1]))
+        newterm = tuple(newterm)
+        Hreordered += coef * QubitOperator(newterm)
+    
+    return Hreordered
+
+def ungroup_odds_and_evens(Hreordered, Nqubits):
+    """
+    go back to original order from all-evens then all-odds order
+    """
+    evens           = [n for n in range(Nqubits) if n % 2 == 0]
+    odds            = [n for n in range(Nqubits) if n % 2 == 1]
+    neworder        = evens + odds
+    un_reorder_dict = {k : v for k,v in enumerate(neworder)}
+    
+    H = QubitOperator()
+    for term, coef in Hreordered.terms.items():
+        newterm = []
+        for op in term:
+            newterm.append((un_reorder_dict[op[0]], op[1]))
+        H += coef * QubitOperator(newterm)
+
+    return H
+

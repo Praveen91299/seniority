@@ -52,6 +52,19 @@ def random_pauli_term(Nqubits):
 
     return tuple(term_tuple), Q(tuple(term_tuple))
 
+def random_pauli_hamiltonian(Nqubits, Nterms):
+    """
+    returns a random qubit Hamiltonian on Nqubits, with <= Nterms
+
+    Note that Nterms is basically how many random Pauli operators are generated; it can generate the same Pauli more than once in general
+    """
+    H = Q()
+
+    for _ in range(Nterms):
+        H += uniform(-2, 2) * random_pauli_term(Nqubits)[1]
+    
+    return H
+
 def random_bin_list(N):
     """
     returns a random binary list (like [0,1,1,0,0,1,1,1,1,0]) of length N
