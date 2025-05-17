@@ -2,7 +2,12 @@ import numpy as np
 from openfermion import (
     QubitOperator,
 )
-from utils_basic import copy_hamiltonian, shift_hamiltonian_qubits, clifford
+from utils_basic import (
+    copy_hamiltonian, 
+    shift_hamiltonian_qubits, 
+    clifford,
+    apply_unitary_product
+)
 
 sigmax = np.array([
     [0.0, 1.0],
@@ -161,6 +166,7 @@ def CNOT_clifford_operator(i, j):
     returns Clifford operator implementation of exp(-i * pi / 4) * CNOT(i,j)
 
     the data structure for a Clifford operator is a list of operators of the form (A + B) / sqrt(2), where A and B anticommute
+    note that the adjoint of a clifford U represented in this data structure is U[::-1]
     """
 
     CNOT_clifford = []
@@ -231,3 +237,45 @@ def ungroup_odds_and_evens(Hreordered, Nqubits):
 
     return H
 
+def process_hamiltonian_to_remove_irrelevant_terms(H, Nqubits, v, w):
+    """
+    implements one of two ways to process the Hamiltonian in qubit space to reduce the cost of measurements
+    this method removes all Pauli terms in H that do not couple states with seniority configuration v to 
+    states with seniority configuration w. It does not change the space, so symmetry verification can still 
+    be done
+
+    the algorithm is as follows:
+        1. apply Clifford unitary that maps z_{2i} z_{2i+1} -> z_{2i}
+        2. reorder qubits 012345... -> 024...135...
+        3. delete Pauli terms based on v[i] \oplus w[i] values corresponding to Xi/Yi or Ii/Zi
+        4. reorder qubits 024...135... -> 012345...
+        5. apply adjoint of Clifford unitary and return
+    """
+    Ucliff                        = seniority_solving_clifford_operator(Nqubits)
+    H_rotated                     = apply_unitary_product(H, Ucliff)
+    H_rotated_reordered           = group_odds_and_evens(H_rotated, Nqubits)
+    H_rotated_reordered_processed = remove_irrelevant_pauli_terms(H_rotated_reordered, v, w)
+    H_rotated_processed           = ungroup_odds_and_evens(H_rotated_reordered_processed, Nqubits)
+    H_processed                   = apply_unitary_product(H, Ucliff[::-1])
+
+    return H_processed 
+
+def process_hamiltonian_to_project_onto_symmetric_subspace(H, Nqubits, v, w):
+    """
+    implements one of two ways to process the Hamiltonian in qubit space to reduce the cost of measurements
+    this method uses the seniority configurations v and w to taper qubits in a way to produce an N < 2N qubit
+    Hamiltonian representation of the block of H that couples v-states to w-states (i.e., qubit tapering).
+    It does change the space, so symmetry verification cannot be used
+
+    the algorithm is as follows:
+        1. apply Clifford unitary that maps z_{2i} z_{2i+1} -> z_{2i}
+        2. reorder qubits 012345 -> 024...135...
+        3. replace all Pauli terms P = P[:N] otimes P[N:] with <v|P[:N]|w> P[N:]
+        4. rename the qubits N,N+1,... -> 0,1,... and return 
+    """
+    Ucliff              = seniority_solving_clifford_operator(Nqubits)
+    H_rotated           = apply_unitary_product(H, Ucliff)
+    H_rotated_reordered = group_odds_and_evens(H_rotated, Nqubits)
+    H_tapered           = taper_hamiltonian(H_rotated_reordered, v, w, shift_to_zero=True)
+
+    return H_tapered
