@@ -247,7 +247,7 @@ def process_hamiltonian_to_remove_irrelevant_terms(H, Nqubits, v, w):
     the algorithm is as follows:
         1. apply Clifford unitary that maps z_{2i} z_{2i+1} -> z_{2i}
         2. reorder qubits 012345... -> 024...135...
-        3. delete Pauli terms based on v[i] \oplus w[i] values corresponding to Xi/Yi or Ii/Zi
+        3. delete Pauli terms based on v[i] oplus w[i] values corresponding to Xi/Yi or Ii/Zi
         4. reorder qubits 024...135... -> 012345...
         5. apply adjoint of Clifford unitary and return
     """
@@ -256,7 +256,7 @@ def process_hamiltonian_to_remove_irrelevant_terms(H, Nqubits, v, w):
     H_rotated_reordered           = group_odds_and_evens(H_rotated, Nqubits)
     H_rotated_reordered_processed = remove_irrelevant_pauli_terms(H_rotated_reordered, v, w)
     H_rotated_processed           = ungroup_odds_and_evens(H_rotated_reordered_processed, Nqubits)
-    H_processed                   = apply_unitary_product(H, Ucliff[::-1])
+    H_processed                   = apply_unitary_product(H_rotated_processed, Ucliff[::-1])
 
     return H_processed 
 

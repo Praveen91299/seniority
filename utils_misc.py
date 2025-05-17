@@ -1,4 +1,4 @@
-# functions for debugging and other miscellani
+# functions for debugging and other miscellany
 
 import numpy as np
 from math import log
