@@ -87,3 +87,10 @@ def sorted_insertion_decomposition(H, methodtag):
             decomp = decomp + [coef * Q(term)]
     
     return decomp
+
+def augment_decomp_with_pauli_x(decomp, N):
+    """
+    puts a sigma_x on qubit N for all fragments. this is needed for extended swap test
+    """
+    x = Q(f'X{N}')
+    return [Op * x for Op in decomp]
