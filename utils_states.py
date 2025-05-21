@@ -52,6 +52,20 @@ def create_composite_state(v, w, N):
 
     return scipy.sparse.csr_matrix((composite_coefficients, non_zero_composite_entries), shape=(1, 2 ** (N + 1)))
 
+def somos_to_seniority_config(somos, Norb):
+    """
+    takes a list of singly occupied molecular orbitals and returns the list of seniority eigenvalues
+    """
+
+    config = []
+
+    for i in range(Norb):
+        if i in somos:
+            config.append(1)
+        else:
+            config.append(0)
+
+    return config
 
 
 # functions for evaluating linear algebraic quantities
@@ -81,3 +95,4 @@ def variance_of_general_operator(Op, State):
     second = (State @ Op @ State.T)
     third  = (State @ Op.conjugate().transpose() @ State.T) 
     return first - (second * third)
+
