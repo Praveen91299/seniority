@@ -1,3 +1,7 @@
+#
+#    Purpose: functions for processing and/or tapering qubit Hamiltonians using seniority symmetries 
+#
+
 import numpy as np
 from openfermion import (
     QubitOperator,
