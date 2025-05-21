@@ -1,7 +1,7 @@
 import numpy as np
 import scipy, time, sys, copy
 from openfermion import FermionOperator, hermitian_conjugated, normal_ordered, get_ground_state
-from ferm_utils import (
+from utils_ferm import (
     get_on_idx, op_action_tz_remove_0coef,
     braket_tz, get_S_squared, get_S_z, judge_eigen_on_list
 )
@@ -9,7 +9,7 @@ import itertools
 from itertools import combinations
 from scipy.sparse import csr_matrix
 from scipy.optimize import minimize
-from pylanczos import PyLanczos
+# from pylanczos import PyLanczos
 from joblib import Parallel, delayed
 
 def get_kappa_isig_asigprim(i_sig,a_sig,debug=False):
