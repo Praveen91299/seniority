@@ -1377,12 +1377,12 @@ def make_short_H_ferm_op(const,obt_phys,tbt_phys):
     to sum p>q, r>s for the 2-body terms
     """
 
-   #print(f'In clean_H_ferm_op')
+    # print(f'In clean_H_ferm_op')
 
-   #print(f'const: {const}')
+    # print(f'const: {const}')
 
     N = obt_phys.shape[0]
-   #print(f'# of spin orbitals: {N}')
+    # print(f'# of spin orbitals: {N}')
 
     H1 = FermionOperator()
     H2 = FermionOperator()
@@ -1395,8 +1395,8 @@ def make_short_H_ferm_op(const,obt_phys,tbt_phys):
                 if p != q:
                     H1 += hermitian_conjugated(FermionOperator(term,coef))
 
-   #print(f'H1:')
-   #print(H1)
+    # print(f'H1:')
+    # print(H1)
 
     for p in range(N):
         for q in range(p):
@@ -1415,12 +1415,12 @@ def make_short_H_ferm_op(const,obt_phys,tbt_phys):
     H_short = FermionOperator((),const)
     H_short += H1 + H2
 
-   #print(f'H_short:')
-   #print(H_short)
+    # print(f'H_short:')
+    # print(H_short)
 
-   #print(dir(H_short))
-    print(f' # of terms in H_short {len(H_short.terms)}')
-   #print(H_short.actions,H_short.action_strings,H_short.action_before_index)
+    # print(dir(H_short))
+    # print(f' # of terms in H_short {len(H_short.terms)}')
+    # print(H_short.actions,H_short.action_strings,H_short.action_before_index)
 
     return(H_short)
 

@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.sparse
+from openfermion import get_sparse_operator
 
 # functions for creating statevectors from raw data
 
@@ -25,7 +26,7 @@ def convert_TZ_format_to_sparse_format(dim, tz_state):
 
 def create_composite_state(v, w, N):
     """
-    creates \frac{1}{\sqrt{2}}(|v>|0> + |w>|1>)
+    creates (1 / sqrt(2)) * (|v>|0> + |w>|1>)
 
     note that the corresponding swap test Hamiltonian is H \otimes x, not x \otimes H
     """
@@ -96,3 +97,10 @@ def variance_of_general_operator(Op, State):
     third  = (State @ Op.conjugate().transpose() @ State.T) 
     return first - (second * third)
 
+def variance_of_decomp(decomp, State, N, general=False):
+    if not general:
+        var_list = [variance_of_operator(get_sparse_operator(Op, N), State) for Op in decomp]
+    else:
+        var_list = [variance_of_general_operator(get_sparse_operator(Op, N), State) for Op in decomp]
+    var_list = np.array([x.toarray()[0,0] for x in var_list])
+    return np.sum((var_list)**(1/2))**2
