@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.sparse
 from openfermion import get_sparse_operator
-
+from utils_fc import decimal_to_binary_string
 # functions for creating statevectors from raw data
 
 def convert_TZ_format_to_sparse_format(dim, tz_state):
@@ -35,7 +35,7 @@ def create_composite_state(v, w, N):
 
     v_column_indices = v.nonzero()[-1]
     for column_index in v_column_indices:
-        coefficient = v[0,column_index] / np.sqrt(2)
+        coefficient         = v[0,column_index] / np.sqrt(2)
         binary_column_index = bin(column_index)[2:]
         larger_column_index = int(binary_column_index + '0', 2)
         composite_column_indices.append(larger_column_index)
@@ -43,7 +43,7 @@ def create_composite_state(v, w, N):
 
     w_column_indices = w.nonzero()[-1]
     for column_index in w_column_indices:
-        coefficient = w[0,column_index] / np.sqrt(2)
+        coefficient         = w[0,column_index] / np.sqrt(2)
         binary_column_index = bin(column_index)[2:]
         larger_column_index = int(binary_column_index + '1', 2)
         composite_column_indices.append(larger_column_index)
@@ -52,6 +52,38 @@ def create_composite_state(v, w, N):
     non_zero_composite_entries = ([0]*len(composite_column_indices), composite_column_indices)
 
     return scipy.sparse.csr_matrix((composite_coefficients, non_zero_composite_entries), shape=(1, 2 ** (N + 1)))
+
+def create_composite_state_prepended(v, w, N):
+    """
+    creates (1 / sqrt(2)) * (|0>|v> + |1>|w>)
+
+    note that the corresponding swap test Hamiltonian is x \otimes H not x \otimes H
+
+    currently, this version is not used 
+    """
+    composite_column_indices = []
+    composite_coefficients   = []
+
+    v_column_indices = v.nonzero()[-1]
+    for column_index in v_column_indices:
+        coefficient         = v[0,column_index] / np.sqrt(2)
+        binary_column_index = decimal_to_binary_string(column_index, length=N)
+        larger_column_index = int('0' + binary_column_index, 2)
+        composite_column_indices.append(larger_column_index)
+        composite_coefficients.append(coefficient)
+
+    w_column_indices = w.nonzero()[-1]
+    for column_index in w_column_indices:
+        coefficient         = w[0,column_index] / np.sqrt(2)
+        binary_column_index = decimal_to_binary_string(column_index, length=N)
+        larger_column_index = int('1' + binary_column_index, 2)
+        composite_column_indices.append(larger_column_index)
+        composite_coefficients.append(coefficient)
+    
+    non_zero_composite_entries = ([0]*len(composite_column_indices), composite_column_indices)
+
+    return scipy.sparse.csr_matrix((composite_coefficients, non_zero_composite_entries), shape=(1, 2 ** (N + 1)))
+
 
 def somos_to_seniority_config(somos, Norb):
     """

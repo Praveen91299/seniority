@@ -241,7 +241,7 @@ def ungroup_odds_and_evens(Hreordered, Nqubits):
 
     return H
 
-def process_hamiltonian_to_remove_irrelevant_terms(H, Nqubits, v, w):
+def process_qubit_hamiltonian_to_remove_irrelevant_terms(H, Nqubits, v, w):
     """
     implements one of two ways to process the Hamiltonian in qubit space to reduce the cost of measurements
     this method removes all Pauli terms in H that do not couple states with seniority configuration v to 
@@ -264,7 +264,7 @@ def process_hamiltonian_to_remove_irrelevant_terms(H, Nqubits, v, w):
 
     return H_processed 
 
-def process_hamiltonian_to_project_onto_symmetric_subspace(H, Nqubits, v, w):
+def process_qubit_hamiltonian_to_project_onto_symmetric_subspace(H, Nqubits, v, w):
     """
     implements one of two ways to process the Hamiltonian in qubit space to reduce the cost of measurements
     this method uses the seniority configurations v and w to taper qubits in a way to produce an N < 2N qubit

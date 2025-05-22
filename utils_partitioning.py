@@ -94,3 +94,10 @@ def augment_decomp_with_pauli_x(decomp, N):
     """
     x = Q(f'X{N}')
     return [Op * x for Op in decomp]
+
+def augment_decomp_with_pauli_x_plus_i_pauli_y(decomp, N):
+    """
+    puts an i * sigma_y on qubit N for all fragments. this is needed for extended swap test
+    """
+    x_plus_iy = Q(f'X{N}') + 1j * Q(f'Y{N}')
+    return [Op * x_plus_iy for Op in decomp]

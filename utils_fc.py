@@ -55,6 +55,20 @@ def decimal_to_binary_list(n, length=None):
             bin_list = [0] + bin_list
         return bin_list
     
+def decimal_to_binary_string(n, length=None):
+    """
+    converts a decimal like 10 to a binary string like '1010'
+
+    you can append zeros if desired by setting the length parameter
+
+    so length = 7 would return '0001010' instead
+    """
+    bin_list   = decimal_to_binary_list(n, length=length)
+    bin_string = ''
+    for z in bin_list:
+        bin_string += str(z)
+    return bin_string
+    
 def decimal_to_parity_list(n, length=None):
     """
     takes the output of decimal_to_binary_list and transforms 0 -> 1, 1 -> -1
