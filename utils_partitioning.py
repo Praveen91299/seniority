@@ -64,9 +64,15 @@ def sorted_insertion_decomposition(H, methodtag):
     """
     implements sorted insertion decomposition of H
     methodtag denotes solvability characteristic for fragments {'fc', 'qwc'}
-
+    
     return is a list of QubitOperator
+    returns None if H has a constant term --> it must be removed first 
     """
+    
+    if H.constant != 0.0:
+        print("Constant term in H must be removed before sorted insertion decomposition")
+        return None
+
     H.terms  = dict(sorted(H.terms.items(), key=abs_of_dict_value, reverse=True))
     
     decomp = [Q().zero()]
@@ -97,7 +103,10 @@ def augment_decomp_with_pauli_x(decomp, N):
 
 def augment_decomp_with_pauli_x_plus_i_pauli_y(decomp, N):
     """
-    puts an i * sigma_y on qubit N for all fragments. this is needed for extended swap test
+    puts an x, and an i * sigma_y on qubit N for all fragments. this is needed for extended swap test
+    this doubles the number of fragments
+    it is needed for the off diagonal matrix elements
     """
-    x_plus_iy = Q(f'X{N}') + 1j * Q(f'Y{N}')
-    return [Op * x_plus_iy for Op in decomp]
+    x  = Q(f'X{N}')
+    iy = 1j * Q(f'Y{N}')
+    return [Op * x for Op in decomp] + [Op * iy for Op in decomp]
