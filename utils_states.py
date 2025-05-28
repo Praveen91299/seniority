@@ -2,6 +2,8 @@ import numpy as np
 import scipy.sparse
 from openfermion import get_sparse_operator
 from utils_fc import decimal_to_binary_string
+from math import log
+
 # functions for creating statevectors from raw data
 
 def convert_TZ_format_to_sparse_format(dim, tz_state):
@@ -100,6 +102,58 @@ def somos_to_seniority_config(somos, Norb):
 
     return config
 
+# functions for compressing and decompressing states for qubit tapering
+
+def compress_state(psi):
+    """
+    psi is a 2N qubit state
+
+    return is "tapered" version of psi on N qubits using MO parity operators.
+
+    It is assumed that psi is an eigenstate of the MO parity operators
+    """
+    Nqubits = int(log(len(psi), 2))
+    psi_t   = np.zeros(2 ** (Nqubits // 2))
+
+    for i, coef in enumerate(psi):
+        if np.abs(coef) > 1e-12:
+            bin_i_2N               = decimal_to_binary_string(i, length=Nqubits)
+            bin_i_N                = bin_i_2N[1::2]
+            psi_t[int(bin_i_N, 2)] = coef
+
+    return psi_t
+
+def enlarge_binary_index_using_config(bin_i_N, config):
+    """
+    subroutine of decompress_state
+    """
+    N        = len(bin_i_N)
+    bin_i_2N = ''
+
+    for idx, z2 in enumerate(bin_i_N):
+        Omega     = config[idx]
+        z1        = str((Omega + int(z2)) % 2)
+        bin_i_2N += z1 + z2
+
+    return bin_i_2N
+
+def decompress_state(psi_t, config):
+    """
+    psi_t is an N qubit "tapered" state. No assumptions are made about its structure a priori
+    config is a length N list of 0 and 1, encoding the eigenvalues of the MO parity operators
+
+    return is 2N qubit state psi whose tapered version is psi_t
+    """
+    Nqubits = 2 * int(log(len(psi), 2))
+    psi     = np.zeros(2 ** Nqubits)
+    
+    for i, coef in enumerate(psi_t):
+        if np.abs(coef) > 1e-12:
+            bin_i_N               = decimal_to_binary_string(i, length=Nqubits//2)
+            bin_i_2N              = enlarge_binary_index_using_config(bin_i_N, config)
+            psi[int(bin_i_2N, 2)] = coef
+
+    return psi
 
 # functions for evaluating linear algebraic quantities
 
