@@ -3,6 +3,7 @@
 import numpy as np
 from math import log
 from openfermion import QubitOperator
+from utils_fc import decimal_to_binary_string
 
 def duplicate_pauli_term_qubit_wise(term):
     """
@@ -28,7 +29,10 @@ def duplicate_statevector_qubit_wise(psi):
     """
     psi is a statevector on N qubits
 
-    return is a statevector on 2N qubits obtained by taking binary string (i.e., 0110) of psi-entries and changing them to duplicated versions (i.e., 00111100)
+    return is a statevector on 2N qubits obtained by taking binary string (i.e., 0110) of psi-entries 
+    and changing them to duplicated versions (i.e., 00111100)
+
+    Note: the function "decompress_state" in `utils_states.py` is a generalization of this function.
     """
     Nqubits = int(log(len(psi), 2))
     newpsi  = np.zeros(2 ** (2 * Nqubits))
@@ -40,3 +44,12 @@ def duplicate_statevector_qubit_wise(psi):
 
     return newpsi
 
+def simple_print_state(psi, Nqubits=None):
+    if Nqubits is None:
+        Nqubits = int(log(len(psi), 2))
+
+    for i, coef in enumerate(psi):
+        if np.abs(coef) > 1e-16:
+            print(np.round(coef, 6), decimal_to_binary_string(i, length=Nqubits))
+
+    return None
