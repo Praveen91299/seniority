@@ -3,6 +3,145 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from utils_circuit import *
 
+def CG(S, M, t, sigma):
+    """
+    Returns Clebsch Gordon coefficient for
+    S - total spin
+    M - projected spin
+    t - change in total spin, t_n - t_{n-1}, provides information about the Genealogical path.
+    sigma - added electron projected/total spin
+    
+    """
+    assert abs(M) <= abs(S)
+    
+    if t == (1/2):
+        assert S != 0, "S cannot be 0 if t is +ve"
+            
+        return np.sqrt((S + 2*sigma*M)/(2*S))
+    if t == (-1/2):
+        return -2*sigma*np.sqrt((S + 1 - 2*sigma*M)/(2*(S+1)))
+
+def validate_t_vec(t_vec, N):
+    """
+    Check if t vector is valid and of sufficient length
+
+    """
+
+    assert len(t_vec) >= N #ensures the number of spins N+1 does not exceed available information
+    assert t_vec[0] == 0.5, 'Invalid first total spin S1: {}'.format(t_vec[0])
+
+    for i in range(len(t_vec)):
+        Si = np.sum(t_vec[:i+1])
+
+        assert abs(t_vec[i]) == 0.5, 'Invalid change in total spin, Si - Si-1: '.format(t_vec[i])
+        assert Si >= 0, 'Total spin Si: {} should be positive'.format(Si)
+        assert 0.5*np.floor(Si/0.5) == Si, 'Total spin Si: {} should be a multiple of 1/2'.format(Si)
+    return
+
+def build_recursive_CSF_circuit(t_vec, N, S, M):
+    """
+    Build recursive circuit to obtain CSF state on an empty state
+
+    S : total spin
+    M : projected spin 
+    t_vec : Genealogy 
+    N: current number of spins, recursive step number. N=1 is base case 
+    
+    """
+    #checks
+    assert S >= 0, "Total spin S: {} is not positive".format(S)
+    assert S >= abs(M), "Projected spin: {} is larger than total spin S: {}".format(M, S)
+    validate_t_vec(t_vec, N)   
+
+    qc = QuantumCircuit(2*N)
+
+    tN = t_vec[N-1]
+    alpha = 1/2
+    beta = -1/2
+
+    ### edge cases
+    if N == 1:
+        # single spin
+        if M == 1/2:
+            qc.x(0)
+        elif M == -1/2:
+            qc.x(1)
+        return qc
+    
+    if S == 0: assert tN == -1/2, "Total spin change tN: {}, but needs to be negative to reach S: {}".format(tN, S)
+
+    coeff_alpha = CG(S, M, tN, alpha)
+    coeff_beta = CG(S, M, tN, beta)
+    qubits_N_1 = qc.qubits[:-2]
+    qubit_alpha = qc.qubits[-2]
+    qubit_beta = qc.qubits[-1]
+
+    theta = 2*np.arctan2(coeff_alpha, coeff_beta)
+
+    qc.ry(theta, qubit=qubit_alpha)
+    qc.cx(qubit_alpha, qubit_beta)
+    qc.x(qubit_beta)
+
+    if coeff_alpha != 0:
+        Ua = build_recursive_CSF_circuit(t_vec, N-1, S - tN, M - alpha)
+        qc.append(Ua.to_gate().control(num_ctrl_qubits=1),  [qubit_alpha]+qubits_N_1)
+    
+    if coeff_beta != 0:
+        Ub = build_recursive_CSF_circuit(t_vec, N-1, S - tN, M - beta)
+        qc.append(Ub.to_gate().control(num_ctrl_qubits=1, ctrl_state=0),  [qubit_alpha]+qubits_N_1)
+        
+    return qc
+
+
+def build_tapered_recursive_CSF_circuit(t_vec, N, S, M):
+    """
+    Build recursive circuit to obtain tapered CSF state on an empty 0 state
+
+    S : total spin
+    M : projected spin 
+    t_vec : Genealogy 
+    N: current number of spins, recursive step number. N=1 is base case 
+    
+    """
+    #checks
+    assert S >= 0, "Total spin S: {} is not positive".format(S)
+    assert S >= abs(M), "Projected spin: {} is larger than total spin S: {}".format(M, S)
+    validate_t_vec(t_vec, N)   
+
+    qc = QuantumCircuit(N)
+
+    tN = t_vec[N-1]
+    alpha = 1/2
+    beta = -1/2
+
+    ### edge cases
+    if N == 1:
+        # single spin
+        if M == 1/2:
+            qc.x(0)
+        return qc
+    
+    if S == 0: assert tN == -1/2, "Total spin change tN: {}, but needs to be negative to reach S: {}".format(tN, S)
+
+    coeff_alpha = CG(S, M, tN, alpha)
+    coeff_beta = CG(S, M, tN, beta)
+    qubits_N_1 = qc.qubits[:-1]
+    qubit_N = qc.qubits[-1]
+
+    theta = 2*np.arctan2(coeff_alpha, coeff_beta)
+
+    qc.ry(theta, qubit=qubit_N)
+
+    if coeff_alpha != 0:
+        Ua = build_tapered_recursive_CSF_circuit(t_vec, N-1, S - tN, M - alpha)
+        qc.append(Ua.to_gate().control(num_ctrl_qubits=1),  [qubit_N]+qubits_N_1)
+    
+    if coeff_beta != 0:
+        Ub = build_tapered_recursive_CSF_circuit(t_vec, N-1, S - tN, M - beta)
+        qc.append(Ub.to_gate().control(num_ctrl_qubits=1, ctrl_state=0),  [qubit_N]+qubits_N_1)
+        
+    return qc
+
 class CSF:
     """
     Class to store CSF object, their corresponding excitation rotations, and retrieve normal and tapered circuits

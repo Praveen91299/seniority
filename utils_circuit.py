@@ -1,4 +1,5 @@
 from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector
 import numpy as np
 from csf import CSF
 
@@ -131,8 +132,146 @@ def get_tapered_ctrl_exc_rot_comb(i, a, n_orb, theta0, theta1):
 
     return qc
 
-from qiskit.circuit import Parameter
+### symmetric pair excitations
 
+def get_tapered_sym_exc_rot(i, a, b, n_orb, theta):
+    """
+    Returns tapered symmetrized pair excitation
+    
+    """
+
+    qc = QuantumCircuit(n_orb)
+
+    qc.cx(b, a)
+    qc.cx(i, b)
+    qc.ry(theta = np.pi/4, qubit=b)
+    qc.cx(i, b)
+    qc.cx(b, a)
+
+    qc.cx(b, i)
+    qc.ry(theta= -np.sqrt(2)*theta, qubit=b)
+    qc.cx(b, i)
+    qc.cx(a, b)
+
+    qc.cx(i, a)
+    qc.cx(b, a)
+    qc.ry(theta= -np.pi/4, qubit=a)
+    qc.cx(b, a)
+    qc.ry(theta= +np.pi/4, qubit=a)
+    qc.cx(a, i)
+    qc.cx(i, b)
+    qc.ry(theta= -np.sqrt(2)*theta, qubit=i)
+    qc.cx(i, b)
+    qc.cx(a, i)
+    qc.ry(theta= -np.pi/4, qubit=a)
+    qc.cx(i, a)
+    qc.cx(a, b)
+
+    return qc
+
+def get_tapered_ctrl_sym_exc_rot(i, a, b, n_orb, theta):
+    """
+    Returns controlled tapered symmetrized excitation rotations
+
+    """
+    qc = QuantumCircuit(n_orb+1)
+
+    c, i, a, b = 0, i+1, a+1, b+1
+    
+    qc.cx(b, a)
+    qc.cx(i, b)
+    qc.ry(theta = np.pi/4, qubit=b)
+    qc.cx(i, b)
+    qc.cx(b, a)
+
+    qc.cx(b, i)
+
+    qc.cx(c, b)
+    qc.ry(theta= theta/np.sqrt(2), qubit=b)
+    qc.cx(c, b)
+    qc.ry(theta= -theta/np.sqrt(2), qubit=b)
+    
+    qc.cx(b, i)
+    qc.cx(a, b)
+
+    qc.cx(i, a)
+
+    qc.cx(b, a)
+    qc.ry(theta= -np.pi/4, qubit=a)
+    qc.cx(b, a)
+    qc.ry(theta= +np.pi/4, qubit=a)
+
+    qc.cx(a, i)
+    qc.cx(i, b)
+    
+    qc.cx(c, i)
+    qc.ry(theta= theta/np.sqrt(2), qubit=i)
+    qc.cx(c, i)
+    qc.ry(theta= -theta/np.sqrt(2), qubit=i)
+    
+    qc.cx(i, b)
+    qc.cx(a, i)
+    qc.ry(theta= -np.pi/4, qubit=a)
+    qc.cx(i, a)
+    qc.cx(a, b)
+
+    return qc
+
+def get_tapered_ctrl_sym_exc_rot_comb(i, a, b, n_orb, theta0, theta1):
+    """
+    Combined tapered symmetrized pair excitation rotations
+    theta0, theta1 when control (0) is 0, 1 respectively
+    
+    """
+
+    qc = QuantumCircuit(n_orb+1)
+
+    c, i, a, b = 0, i+1, a+1, b+1
+    a0 = -np.sqrt(2)*theta0
+    a1 = -np.sqrt(2)*theta1
+    delta = (a1 - a0)
+    sigma = (a1 + a0)
+    
+    qc.cx(b, a)
+    qc.cx(i, b)
+    qc.ry(theta = np.pi/4, qubit=b)
+    qc.cx(i, b)
+    qc.cx(b, a)
+    qc.cx(b, i)
+
+    qc.ry(theta= sigma/2, qubit=b)
+    qc.cx(c, b)
+    qc.ry(theta= -delta/2, qubit=b)
+    qc.cx(c, b)
+    
+    
+    qc.cx(b, i)
+    qc.cx(a, b)
+
+    qc.cx(i, a)
+
+    qc.cx(b, a)
+    qc.ry(theta= -np.pi/4, qubit=a)
+    qc.cx(b, a)
+    qc.ry(theta= +np.pi/4, qubit=a)
+
+    qc.cx(a, i)
+    qc.cx(i, b)
+    
+    qc.ry(theta= sigma/2, qubit=i)
+    qc.cx(c, i)
+    qc.ry(theta= -delta/2, qubit=i)
+    qc.cx(c, i)
+    
+    qc.cx(i, b)
+    qc.cx(a, i)
+    qc.ry(theta= -np.pi/4, qubit=a)
+    qc.cx(i, a)
+    qc.cx(a, b)
+
+    return qc
+
+from qiskit.circuit import Parameter
 
 def build_ext_swap_circuit(CSF0: CSF, CSF1: CSF):
     """
@@ -229,3 +368,24 @@ def build_ext_swap_circuit(CSF0: CSF, CSF1: CSF):
     ## TODO Add measurement circuit
 
     return qc #circuit and parameter map
+
+def count_cx_gates(circuit: QuantumCircuit):
+    return sum(1 for instr, qargs, cargs in circuit.data if instr.name == 'cx')
+
+def show_state(qc, tol=1e-5):
+    """
+    Show and return quantum state prepared by the circuit. Note that qiskit qubit ordering is reversed (msb/little endian).
+
+    """
+
+    state = Statevector.from_instruction(qc)
+    state_dict = {}
+
+    for i, amplitude in enumerate(state.data):
+        basis = format(i, f'0{state.num_qubits}b')
+
+        if abs(amplitude) >=tol:
+            print(f"|{basis}⟩: {amplitude}")
+            state_dict[basis] = amplitude
+    
+    return state_dict
