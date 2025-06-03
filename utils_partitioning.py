@@ -122,7 +122,8 @@ def augment_decomp_with_pauli_x_plus_i_pauli_y(decomp, N):
     return [Op * x for Op in decomp] + [Op * iy for Op in decomp]
 
 # SI-ICS code
-# potential flaw: Hamiltonians now have complex coefficients, so this code may not work
+# Hamiltonians now have complex coefficients, so this code may not work
+# flaw with current implementation: code only works using real Hamiltonians
 
 def convert_QubitOperator_to_BinaryHamiltonian(H):
     Htequila = tq.QubitHamiltonian.from_openfermion(H)
@@ -154,3 +155,26 @@ def calculate_cov_dict(state, Hbin, Nqubits):
 
     return cov_dict
 
+def compute_SI_ICS_decomposition(H, state, Nqubits, fragment_type='fc', n_iter=5):
+    Hbin                  = convert_QubitOperator_to_BinaryHamiltonian(H)
+    cov_dict              = calculate_cov_dict(state, Hbin, Nqubits)
+    decomp_obj            = OverlappingGroups.init_from_binary_terms(Hbin.binary_terms, fragment_type)
+    auxiliary             = OverlappingAuxiliary(cov_dict, n_iter)
+    SI_ICS_frags          = decomp_obj.optimal_overlapping_groups(auxiliary)
+    fragments_binary      = [tq.grouping.binary_rep.BinaryHamiltonian(x) for x in SI_ICS_frags]
+    fragments_openfermion = [x.to_qubit_hamiltonian().to_openfermion() for x in fragments_binary]
+
+    return fragments_openfermion
+
+
+"""
+approach to duct-tape together a working code without modifying the current implementation of ICS:
+1. Write Hamiltonian as H = sum_P r_P e^{i theta_P} P. 
+   We have flexibility to choose sgn(r_P). I suggest to take sgn(r_P) = +
+   it is unclear if the sign choice will affect the final result. It does not effect the SI part, but I am not sure about the ICS part.
+2. Calculate cov_dict using e^{i theta P} P operators instead. Note that covariance is always real so the data structure doesn't change
+3. Do SI-ICS decomposition using this cov_dict and the modified Hamiltonian H = \sum_P r_P P
+4. reconstruct the fragments by appending the correct phase to each term.
+
+the sum of the fragments should be H = sum_P r_P e^{i theta_P} P, which is equal to the original Hamiltonian
+"""
