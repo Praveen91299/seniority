@@ -2,12 +2,16 @@
 
 import numpy as np
 from openfermion import (
-    QubitOperator as Q
+    QubitOperator as Q,
+    expectation,
+    get_sparse_operator
 )
+
 from utils_basic import (
     is_commuting,
     is_qubit_wise_commuting
 )
+import tequila as tq
 
 def is_qwc_hamiltonian(H):
     """
@@ -110,3 +114,41 @@ def augment_decomp_with_pauli_x_plus_i_pauli_y(decomp, N):
     x  = Q(f'X{N}')
     iy = 1j * Q(f'Y{N}')
     return [Op * x for Op in decomp] + [Op * iy for Op in decomp]
+
+# iterative coefficient splitting functions --> uses tequila
+
+def convert_QubitOperator_to_BinaryHamiltonian(H, Nqubits):
+    H_tequila = tq.QubitHamiltonian.from_openfermion(H)
+    H_binary  = tq.grouping.binary_rep.BinaryHamiltonian.init_from_qubit_hamiltonian(H_tequila, ignore_const=True)
+    
+    return H_binary
+
+def calculate_cov_dict(state, Hbin, Nqubits):
+    """
+    state is a 2**N vector
+    Hbin is a BinaryHamiltonian
+
+    return: dictionary of (bin1, bin2) : Cov_{Op[bin1], Op[bin2]}
+    """
+    cov_dict = dict()
+
+    for i, term1 in enumerate(Hbin.binary_terms):
+        Op1 = get_sparse_operator(Q(term1.to_pauli_strings().key_openfermion()), Nqubits)
+        for j, term2 in enumerate(Hbin.binary_terms):
+            if i >= j and term1.commute(term2):
+                Op2 = get_sparse_operator(Q(term2.to_pauli_strings().key_openfermion()), Nqubits)
+                cov = expectation(Op1 @ Op2, state) - expectation(Op1, state) * expectation(Op2, state)
+                cov_dict[(term1.binary_tuple(), term2.binary_tuple())] = cov
+
+    return cov_dict
+
+def compute_SI_ICS_decomposition(H, state, Nqubits, fragment_type, n_iter=5):
+    Hbin                  = convert_QubitOperator_to_BinaryHamiltonian(H, Nqubits)
+    cov_dict              = calculate_cov_dict(state, Hbin, Nqubits)
+    decomp_obj            = tq.grouping.overlapping_methods.OverlappingGroups.init_from_binary_terms(Hbin.binary_terms, fragment_type)
+    auxiliary             = tq.grouping.overlapping_methods.OverlappingAuxiliary(cov_dict, n_iter)
+    SI_ICS_frags          = decomp_obj.optimal_overlapping_groups(auxiliary)
+    fragments_binary      = [tq.grouping.binary_rep.BinaryHamiltonian(x) for x in SI_ICS_frags]
+    fragments_openfermion = [x.to_qubit_hamiltonian().to_openfermion() for x in fragments_binary]
+
+    return fragments_openfermion
