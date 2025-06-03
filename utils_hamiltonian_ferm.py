@@ -6,7 +6,6 @@ TODO: the process_fermionic_hamiltonian_to_remove_irrelevant_terms function uses
       this should be fixed by re-writing the code to use the generators and seniority configurations directly to remove states
 """
 
-
 #
 #    Purpose: functions for processing and/or tapering fermionic Hamiltonians using seniority symmetries 
 #
