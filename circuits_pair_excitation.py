@@ -1,6 +1,10 @@
 from __future__ import annotations
 from qiskit import QuantumCircuit
+from qiskit.circuit.library import PauliEvolutionGate
+from qiskit.quantum_info import SparsePauliOp
 import numpy as np
+from openfermion import QubitOperator
+from .utils_circuit import qubit_op_to_sparse_pauli_op
 
 def append_tapered_exc_rot(qc: QuantumCircuit, i, a, theta):
     """
@@ -216,7 +220,26 @@ class PairedExcitationRotation:
         assert len(excitations) == 1, "Wrong number of excitations for single Paired Excitations"
         assert len(excitations[0]) == 2, "Wrong number of indices for excitations"
         assert excitations[0][0] < n_orb and excitations[0][1] < n_orb, "Orbital index exceeds available orbitals"
+    
+    def get_generators(self, taper = True):
+        """
+        Returns SparsePauli generator list of the unitary, with entries of the list containing commuting Pauli products
 
+        """
+
+        if taper:
+            i, a = self.get_indices()
+            generators_of = [QubitOperator('X{} Y{}'.format(i, a), 1.0) - QubitOperator('Y{} X{}'.format(i, a), 1.0)] # commuting
+            generators = [qubit_op_to_sparse_pauli_op(gen, self.n_orb) for gen in generators_of]
+
+        return generators
+    
+    def get_PauliEvolutionGate(self):
+        generators = self.get_generators()
+        time = -1*self.theta
+
+        return PauliEvolutionGate(operator=generators, time=time)
+    
     def get_excitations(self):
         return self.excitations
     
@@ -247,7 +270,7 @@ class PairedExcitationRotation:
         i, a = self.get_indices()
         append_tapered_ctrl_exc_rot(qc, control_qubit, target_qubits[i], target_qubits[a], self.get_theta())
     
-    def append_combined_controlled_tapered_circuit(self, other: PairedExcitationRotation, control_self_on = 1, qc : QuantumCircuit, control_qubit, target_qubits):
+    def append_combined_controlled_tapered_circuit(self, other: PairedExcitationRotation, qc : QuantumCircuit, control_qubit, target_qubits, control_self_on = 1):
         """
         Append 
         
@@ -273,14 +296,35 @@ class SymmetricPairedExcitationRotation(PairedExcitationRotation):
         self.n_orb = n_orb
         self.theta = theta
 
-        self.check_excitation(excitations=excitations, self.n_orb)
+        self.check_excitation(excitations, self.n_orb)
         self.excitations = excitations
 
     def get_common_index(self):
         return set.intersection(set(self.excitations[0]), set(self.excitations[1])).pop()
     
     def get_disjoint_indices(self):
-        return list(set.symmetric_difference(set(a[0]), set(a[1])))
+        exc = self.get_excitations()
+        return list(set.symmetric_difference(set(exc[0]), set(exc[1])))
+    
+    def get_indices(self):
+        """
+        Returns excitation indices in order (i, a, b) where i is the common index
+
+        """
+        return [self.get_common_index()] + self.get_disjoint_indices()
+    
+    def get_generators(self, taper=True):
+        """
+        Returns generators of the symmetrized pair excitation, grouped into commuting terms
+        """
+        
+        if taper:
+            i, a, b = self.get_indices()
+            generators_of = [QubitOperator('X{} Y{}'.format(i, a), 1.0) - QubitOperator('Y{} X{}'.format(i, a), 1.0),
+                             QubitOperator('X{} Y{}'.format(i, b), 1.0) - QubitOperator('Y{} X{}'.format(i, b), 1.0)] # commuting
+            generators = [qubit_op_to_sparse_pauli_op(gen, self.n_orb) for gen in generators_of]
+
+        return generators
 
     @classmethod
     def check_excitation(cls, excitations, n_orb):
@@ -315,7 +359,7 @@ class SymmetricPairedExcitationRotation(PairedExcitationRotation):
 
         append_tapered_ctrl_sym_exc_rot(qc, control_qubit, target_qubits[i], target_qubits[a], target_qubits[b], self.get_theta())
     
-    def append_combined_controlled_tapered_circuit(self, other: PairedExcitationRotation, control_self_on = 1, qc : QuantumCircuit, control_qubit, target_qubits):
+    def append_combined_controlled_tapered_circuit(self, other: PairedExcitationRotation, qc : QuantumCircuit, control_qubit, target_qubits, control_self_on = 1):
         """
         Append 
         

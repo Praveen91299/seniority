@@ -1,7 +1,6 @@
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
-from utils_circuit import *
 
 def CG(S, M, t, sigma):
     """
