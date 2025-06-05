@@ -8,18 +8,20 @@ from seniority.utils_circuit import qubit_op_to_sparse_pauli_op
 
 def append_tapered_exc_rot(qc: QuantumCircuit, i, a, theta):
     """
-    Append tapered rotation, exp(0.5*i*theta*(XY - YX))
+    Append tapered rotation, exp(0.5*i*theta*(XiYa - YiXa))
 
     """
 
-    qc.cx(i, a)
-
-    qc.ry(theta, i)
+    qc.rz(np.pi/2, a)
+    qc.rx(np.pi/2, a)
+    qc.rx(np.pi/2, i)
     qc.cx(a, i)
-    qc.ry(-theta, i)
+    qc.rx(theta, a)
+    qc.rz(theta, i)
     qc.cx(a, i)
-
-    qc.cx(i, a)
+    qc.rx(-np.pi/2, a)
+    qc.rx(-np.pi/2, i)
+    qc.rz(-np.pi/2, a)
 
 def append_tapered_ctrl_exc_rot(qc: QuantumCircuit, c, i, a, theta):
     """
@@ -27,16 +29,20 @@ def append_tapered_ctrl_exc_rot(qc: QuantumCircuit, c, i, a, theta):
 
     """
 
+    qc.rz(np.pi/2, i)
+    qc.ry(-np.pi/2, a)
+    qc.rz(-np.pi/2, a)
     qc.cx(i, a)
+    qc.rz(np.pi/2, a)
+    qc.ry(np.pi/2, a)
 
-    qc.ry(theta/4, i)
-    qc.cx(a, i)
-    qc.ry(-theta/4, i)
-    qc.cx(c, i)
-    qc.ry(theta/4, i)
-    qc.cx(a, i)
-    qc.ry(-theta/4, i)
-    qc.cx(c, i)
+    qc.ry(-theta/2, i)
+    qc.cz(c, i)
+    qc.ry(theta/2, i)
+    qc.cz(i, a)
+    qc.ry(-theta/2, i)
+    qc.cz(c, i)
+    qc.ry(theta/2, i)
 
     qc.cx(i, a)
 
@@ -50,17 +56,21 @@ def append_tapered_ctrl_exc_rot_comb(qc, c, i, a, theta0, theta1):
     delta = theta1 - theta0
     sigma = theta1 + theta0
 
+    qc.rz(np.pi/2, i)
+    qc.ry(-np.pi/2, a)
+    qc.rz(-np.pi/2, a)
     qc.cx(i, a)
+    qc.rz(np.pi/2, a)
+    qc.ry(np.pi/2, a)
 
-    qc.cx(c, i)
-    qc.ry(-sigma/4, i)
-    qc.cx(a, i)
-    qc.ry(delta/4, i)
-    qc.cx(c, i)
-    qc.ry(-delta/4, i)
-    qc.cx(a, i)
-    qc.ry(sigma/4, i)
-    
+    qc.ry(-sigma/2, i)
+    qc.cz(c, i)
+    qc.ry(delta/2, i)
+    qc.cz(i, a)
+    qc.ry(-delta/2, i)
+    qc.cz(c, i)
+    qc.ry(sigma/2, i)
+
     qc.cx(i, a)
 
 ### symmetric pair excitations

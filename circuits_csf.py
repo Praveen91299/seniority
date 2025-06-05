@@ -256,7 +256,7 @@ class CSF:
             N = self.get_num_targ_orb()
             S = 0
             M = 0
-            qc.append(build_tapered_recursive_CSF_circuit(self.t_vec, N, S, M), self.orbitals)
+            qc.append(build_tapered_recursive_CSF_circuit(self.t_vec, N, S, M).to_gate(), self.orbitals)
         
         return qc
     

@@ -30,13 +30,16 @@ def lcs_with_indices(a: list[PairedExcitationRotation], b: list[PairedExcitation
     sequence = [a[i] for i in indices_a]
     return sequence, indices_a, indices_b
 
-def build_ext_swap_circuit(CSF0: CSF, CSF1: CSF):
+def build_ext_swap_circuit(CSF0: CSF, CSF1: CSF, verbose=False):
     """
-    Build parameterized tapered circuit for extended swap test, with different CSFs and Unitaries
+    Build parameterized tapered circuit for extended swap test, with different CSFs and Unitaries to estimate
+        Re[<CSF1| H |CSF0>]
+    
+    CSF0, CSF1: CSF - CSF class objects, controlled on 0, 1 respectively 
 
-    CSF1, CSF2 : tuples to specify type and qubit positions
-
-    qwc measurement circuit missing!!
+    Cost reduction with identifying longest ordered subsequence of shared unitaries
+    
+    TODO qwc measurement circuit missing!!
 
     """
     assert CSF0.n_orb == CSF1.n_orb, "Incompatible CSFs"
@@ -70,6 +73,11 @@ def build_ext_swap_circuit(CSF0: CSF, CSF1: CSF):
 
     # find LCS of elements
     exc_common_list, idx0, idx1 = lcs_with_indices(exc_list0, exc_list1)
+
+    assert len(idx0) == len(idx1)
+
+    if verbose:
+        print("{} common pair excitations found.".format(len(idx0)))
 
     last0 = 0
     last1 = 0
