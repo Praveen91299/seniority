@@ -4,19 +4,19 @@ from qiskit.circuit.library import PauliEvolutionGate
 from qiskit.quantum_info import SparsePauliOp
 import numpy as np
 from openfermion import QubitOperator
-from .utils_circuit import qubit_op_to_sparse_pauli_op
+from seniority.utils_circuit import qubit_op_to_sparse_pauli_op
 
 def append_tapered_exc_rot(qc: QuantumCircuit, i, a, theta):
     """
-    Append tapered rotation of theta
+    Append tapered rotation, exp(0.5*i*theta*(XY - YX))
 
     """
 
     qc.cx(i, a)
 
-    qc.ry(theta/2, i)
+    qc.ry(theta, i)
     qc.cx(a, i)
-    qc.ry(-theta/2, i)
+    qc.ry(-theta, i)
     qc.cx(a, i)
 
     qc.cx(i, a)
@@ -191,6 +191,8 @@ def append_tapered_ctrl_sym_exc_rot_comb(qc, c, i, a, b, n_orb, theta0, theta1):
 class PairedExcitationRotation:
     """
     Class to store paired excitations
+
+    excitation list[list[int]] : eq: [[0, 1]]
     
     """
 
@@ -235,8 +237,14 @@ class PairedExcitationRotation:
         return generators
     
     def get_PauliEvolutionGate(self):
+        """
+        Returns qiskit.circuit.library.PauliEvolutionGate object 
+        
+        exp(i*0.5*theta*G)
+        
+        """
         generators = self.get_generators()
-        time = -1*self.theta
+        time = -0.5*self.theta
 
         return PauliEvolutionGate(operator=generators, time=time)
     
@@ -387,10 +395,10 @@ def init_exc_list(excitations, n_orb, thetas = None):
 
     
     """
-    if thetas == None:
+    if thetas is None:
         thetas == np.zeros(len(excitations))
 
-    assert len(excitations) == len(theta)
+    assert len(excitations) == len(thetas)
 
     U = []
     for exc, theta in zip(excitations, thetas):

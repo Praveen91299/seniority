@@ -1,6 +1,64 @@
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
+from seniority.circuits_pair_excitation import PairedExcitationRotation
+
+
+def get_hf_circuit(n_orb, ne):
+    assert ne <= n_orb*2, "Provided number of electrons {} incompatible with {} orbitals.".format(ne, n_orb)
+
+    qc = QuantumCircuit(2*n_orb)
+    for i in range(ne):
+        qc.x(i)
+    return qc
+
+def get_tapered_hf_circuit(n_orb, ne):
+    assert ne <= n_orb*2, "Provided number of electrons {} incompatible with {} orbitals.".format(ne, n_orb)
+
+    qc = QuantumCircuit(n_orb)
+    for i in range(ne//2):
+        qc.x(i)
+    if ne%2:
+        qc.x(ne//2)
+    return qc
+
+def get_tapered_Tia_circuit(i, a, n_orb):
+    qc = QuantumCircuit(n_orb)
+
+    qc.x(a)
+    qc.h(a)
+    qc.cx(control_qubit=a, target_qubit=i)
+
+    return qc
+
+def get_tapered_Stt_circuit(i, j, a, b, n_orb):
+    qc = QuantumCircuit(n_orb)
+
+    # takes care of hf state
+    qc.x(i)
+    qc.x(j)
+
+    qc.h(i)
+    qc.ry(theta=(-2)*np.arctan2(1, np.sqrt(2)), qubit=j)
+    qc.x(a)
+    qc.x(j)
+    qc.cx(j, a)
+    qc.cx(i, j)
+    qc.ch(a, b)
+    qc.cx(b, a)
+    qc.cx(i, a)
+    qc.cx(i, b)
+    qc.x(i)
+
+    return qc
+ 
+def get_tapered_Sss_circuit(i, j, a, b, n_orb):
+    qc = QuantumCircuit(n_orb)
+
+    qc.append(get_tapered_Tia_circuit(i, a, n_orb).to_gate(), qc.qubits)
+    qc.append(get_tapered_Tia_circuit(j, b, n_orb).to_gate(), qc.qubits)
+
+    return qc
 
 def CG(S, M, t, sigma):
     """
@@ -144,72 +202,62 @@ def build_tapered_recursive_CSF_circuit(t_vec, N, S, M):
 class CSF:
     """
     Class to store CSF object, their corresponding excitation rotations, and retrieve normal and tapered circuits
+
+    t_vec : list[float] - genealogy path, consisting of \pm 1/2 of length N=len(orbitals) (Note S, M = 0 always (siglet))
+    orbitals : list[int] - orbitals involved in singlet state
+    n_orb : Total number of spatial orbitals
+    ne : number of electrons
+    excitations: list[PairedExcitationRotation] - 
+
+
     
     """
-    def __init__(self, kind, orbitals, n_orb, ne, exc_list = [], thetas = None):
+    def __init__(self, t_vec, orbitals, n_orb, ne, excitations : list[PairedExcitationRotation] = []):
         self.n_orb = n_orb
+        self.t_vec = t_vec
         self.ne = ne
-        self.kind = kind
+        self.t_vec = t_vec
 
-        assert self.get_num_targ_orb() == len(orbitals), 'Incorrect number of orbitals in {} for kind: {}'.format(orbitals, self.kind)
+        assert self.get_num_targ_orb() == len(orbitals), 'Incorrect number of orbitals in {} for genealogy vector: {}'.format(orbitals, self.t_vec)
         self.orbitals = orbitals
-
-        self.exc_list = exc_list
-        self.thetas = None
-        self.initialize_thetas(thetas)
+        self.excitations = excitations
     
-    def initialize_thetas(self, thetas):
-
-        if thetas is None:
-
-            name = self.kind
-            for i in self.orbitals:
-                name += '_{}'.format(i)
-            
-            self.thetas = [Parameter(name=name+'_{}'.format(i)) for i in range(len(self.exc_list))]
-        else:
-            assert len(thetas) == len(self.exc_list), "Incorrect number of thetas passed! Excitation count :{}, theta count: {}".format(len(self.exc_list), len(thetas))
-            self.thetas = thetas
-    
-    def get_thetas(self):
-        return self.thetas
-    
-    def get_excitations(self):
-        return self.exc_list
+    def get_excitations(self) ->list[PairedExcitationRotation] :
+        return self.excitations
     
     def get_num_targ_orb(self):
-        if self.kind == "hf":
-            return 0
-        if self.kind == "Tia":
-            return 2
-        if self.kind == "Stt":
-            return 4
-        if self.kind == "Sss":
-            return 4
+        return len(self.t_vec)
     
-    def get_tapered_circuit(self, add_hf = True):
+    def get_tapered_csf_circuit(self, add_hf = True):
         qc = QuantumCircuit(self.n_orb) # 1 for control
 
         if add_hf:
             qc.append(get_tapered_hf_circuit(self.n_orb, self.ne).to_gate(), qc.qubits)
-
-        if self.kind == "hf":
-            return qc
         
-        if self.kind == "Tia":
+        if self.t_vec == []:
+            return qc
+        elif self.t_vec == [1/2, -1/2]:
             i, a = self.orbitals
 
             qc.append(get_tapered_Tia_circuit(i, a, self.n_orb).to_gate(), qc.qubits)
-        if self.kind == "Stt":
+        elif self.t_vec == [1/2, 1/2, -1/2, -1/2]:
             i, j, a, b = self.orbitals
 
             qc.append(get_tapered_Stt_circuit(i, j, a, b, self.n_orb).to_gate(), qc.qubits)
-        if self.kind == "Sss":
+        elif self.t_vec == [1/2, -1/2, 1/2, -1/2]:
             i, j, a, b = self.orbitals
             assert i < j and a < b, 'i: {} j: {} a: {} b: {}'.format(i, j, a, b)
 
             qc.append(get_tapered_Sss_circuit(i, j, a, b, self.n_orb).to_gate(), qc.qubits)
+        else:
+            ### general case
+            # redo hf
 
+            N = self.get_num_targ_orb()
+            S = 0
+            M = 0
+            qc.append(build_tapered_recursive_CSF_circuit(self.t_vec, N, S, M), self.orbitals)
+        
         return qc
     
     def get_parity_string(self):
