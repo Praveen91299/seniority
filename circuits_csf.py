@@ -60,6 +60,39 @@ def get_tapered_Sss_circuit(i, j, a, b, n_orb):
 
     return qc
 
+def append_tapered_Tia_circuit(qc, i, a):
+    """
+    Append circuit to prepare 0.707*[|01> - |10>]
+
+    """
+
+    qc.x(i)
+    qc.x(a)
+    qc.h(a)
+    qc.cx(control_qubit=a, target_qubit=i)
+
+    return qc
+
+def append_tapered_Sss_circuit(qc, i, j, a, b):
+
+    append_tapered_Tia_circuit(qc, i, a)
+    append_tapered_Tia_circuit(qc, j, b)
+
+def append_tapered_Stt_circuit(qc, i, j, a, b):
+
+    # takes care of hf state
+    qc.h(i)
+    qc.ry(theta=(-2)*np.arctan2(1, np.sqrt(2)), qubit=j)
+    qc.x(a)
+    qc.x(j)
+    qc.cx(j, a)
+    qc.cx(i, j)
+    qc.ch(a, b)
+    qc.cx(b, a)
+    qc.cx(i, a)
+    qc.cx(i, b)
+    qc.x(i)
+
 def CG(S, M, t, sigma):
     """
     Returns Clebsch Gordon coefficient for
@@ -199,12 +232,19 @@ def build_tapered_recursive_CSF_circuit(t_vec, N, S, M):
         
     return qc
 
+def append_x_occ(qc, occ):
+    assert len(qc.qubits) >= len(occ), "Insufficient number of qubits."
+
+    for idx, i in enumerate(occ):
+        if i == 1:
+            qc.x(idx)
+
 class CSF:
     """
     Class to store CSF object, their corresponding excitation rotations, and retrieve normal and tapered circuits
 
     t_vec : list[float] - genealogy path, consisting of \pm 1/2 of length N=len(orbitals) (Note S, M = 0 always (siglet))
-    orbitals : list[int] - orbitals involved in singlet state
+    orbitals : list[int] - orbitals involved in singlet state (unpaired orbitals)
     n_orb : Total number of spatial orbitals
     ne : number of electrons
     excitations: list[PairedExcitationRotation] - 
@@ -228,27 +268,28 @@ class CSF:
     def get_num_targ_orb(self):
         return len(self.t_vec)
     
-    def get_tapered_csf_circuit(self, add_hf = True):
+    def get_tapered_csf_circuit(self, add_double_occ = True)->QuantumCircuit:
         qc = QuantumCircuit(self.n_orb) # 1 for control
 
-        if add_hf:
-            qc.append(get_tapered_hf_circuit(self.n_orb, self.ne).to_gate(), qc.qubits)
+        if add_double_occ:
+            occ = self.get_doubly_occ_orbitals()
+            append_x_occ(qc, occ)
         
         if self.t_vec == []:
             return qc
         elif self.t_vec == [1/2, -1/2]:
             i, a = self.orbitals
 
-            qc.append(get_tapered_Tia_circuit(i, a, self.n_orb).to_gate(), qc.qubits)
+            append_tapered_Tia_circuit(qc, i, a)
         elif self.t_vec == [1/2, 1/2, -1/2, -1/2]:
             i, j, a, b = self.orbitals
 
-            qc.append(get_tapered_Stt_circuit(i, j, a, b, self.n_orb).to_gate(), qc.qubits)
+            append_tapered_Stt_circuit(qc, i, j, a, b)
         elif self.t_vec == [1/2, -1/2, 1/2, -1/2]:
             i, j, a, b = self.orbitals
             assert i < j and a < b, 'i: {} j: {} a: {} b: {}'.format(i, j, a, b)
 
-            qc.append(get_tapered_Sss_circuit(i, j, a, b, self.n_orb).to_gate(), qc.qubits)
+            append_tapered_Sss_circuit(qc, i, j, a, b)
         else:
             ### general case
             # redo hf
@@ -257,6 +298,35 @@ class CSF:
             S = 0
             M = 0
             qc.append(build_tapered_recursive_CSF_circuit(self.t_vec, N, S, M).to_gate(), self.orbitals)
+        
+        return qc
+    
+    def get_doubly_occ_orbitals(self):
+        """
+        Return idx of doubly occupied spatial orbitals
+
+        """
+        excess_elec = self.ne - len(self.orbitals)
+        to_add = np.ceil(excess_elec/2)
+
+        d_occ = np.array([0]*self.n_orb)
+
+        added = 0
+        for i in range(self.n_orb):
+
+            if i not in self.orbitals:
+                d_occ[i] = 1
+                added += 1
+            
+            if added == to_add:
+                return d_occ
+        
+        raise ValueError('Insufficient orbitals {} for {} electrons and {} singly occupied orbitals'.format(self.n_orb, self.ne, len(self.orbitals)))
+
+    def get_tapered_full_circuit(self):
+        qc = self.get_tapered_csf_circuit(True)
+        for exc in self.excitations:
+            exc.append_tapered_circuit(qc, qc.qubits)
         
         return qc
     

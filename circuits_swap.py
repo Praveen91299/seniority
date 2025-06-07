@@ -54,18 +54,32 @@ def build_ext_swap_circuit(CSF0: CSF, CSF1: CSF, verbose=False):
 
     ## CSF state prep
     #hf
-    qc.append(get_tapered_hf_circuit(CSF0.n_orb, CSF0.ne).to_gate(), target_qubits) # initial HF state
+    occ0 = CSF0.get_doubly_occ_orbitals()
+    occ1 = CSF1.get_doubly_occ_orbitals()
+
+    assert len(occ0) == len(occ1)
+
+    occ0_only = []
+    occ1_only = []
+    common = []
+
+    for idx, i in enumerate(occ0):
+        if occ0[idx] == occ1[idx] and occ0[idx] == 1:
+            common.append(target_qubits[idx])
+        elif occ1[idx]:
+            occ1_only.append(target_qubits[idx])
+        elif occ0[idx]:
+            occ0_only.append(target_qubits[idx])
+
+    qc.x(common)
+    qc.cx(control_qubit, occ0_only, ctrl_state=0)
+    qc.cx(control_qubit, occ1_only, ctrl_state=1)
 
     csf0 = CSF0.get_tapered_csf_circuit(False).to_gate()
     csf1 = CSF1.get_tapered_csf_circuit(False).to_gate()
 
-    qc.append(csf0.control(1), [control_qubit] + target_qubits)
-    qc.x(control_qubit)
-    qc.append(csf1.control(1), [control_qubit] + target_qubits)
-
-    ## Add U
-    # discard Us that act on odd parity orbitals
-    
+    qc.append(csf0.control(1, ctrl_state=0), [control_qubit] + target_qubits)
+    qc.append(csf1.control(1, ctrl_state=1), [control_qubit] + target_qubits)
     
     ## make parameters
     # modify to add name of csf as identifier

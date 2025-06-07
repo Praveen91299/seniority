@@ -149,7 +149,7 @@ def append_tapered_ctrl_sym_exc_rot(qc: QuantumCircuit, c, i, a, b, theta):
     qc.cx(i, a)
     qc.cx(a, b)
 
-def append_tapered_ctrl_sym_exc_rot_comb(qc, c, i, a, b, n_orb, theta0, theta1):
+def append_tapered_ctrl_sym_exc_rot_comb(qc, c, i, a, b, theta0, theta1):
     """
     Appends combined tapered symmetrized pair excitation rotations
     theta0, theta1 when control (0) is 0, 1 respectively
