@@ -1,7 +1,10 @@
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
-from seniority.circuits_pair_excitation import PairedExcitationRotation
+from seniority.circuits_pair_excitation import PairedExcitationRotation, SymmetricPairedExcitationRotation
+from scipy import sparse as sp
+from openfermion import s_squared_operator, get_sparse_operator
+import pickle
 
 
 def get_hf_circuit(n_orb, ne):
@@ -238,6 +241,90 @@ def append_x_occ(qc, occ):
     for idx, i in enumerate(occ):
         if i == 1:
             qc.x(idx)
+
+def get_state_from_csf_data(csf_state, orbitals):
+    spin_orbs = []
+    for o in orbitals:
+        spin_orbs.append(2*o)
+        spin_orbs.append(2*o + 1)
+    
+    rows = []
+
+    get_int = lambda sd: np.sum([val * (2**(len(sd) - 1 - i)) for i, val in enumerate(sd)])
+
+    for SD in csf_state[0]:
+        trunc_SD = SD[spin_orbs]
+        rows.append(get_int(trunc_SD))
+    
+    arr = sp.csr_matrix((csf_state[2], (rows, [0]*len(rows))), shape=(2**len(spin_orbs), 1), dtype=complex)
+
+    return arr
+
+def get_t_vec(state, n_orb):
+    """
+    Get t vector from state by taking difference of successive S values
+
+    """
+    get_s = lambda ss: -0.5 + 0.5*np.sqrt(1 + 4*ss)
+
+    s_list = [get_s((state.T @ (get_sparse_operator(s_squared_operator(i), 2*n_orb)) @ state).toarray()[0, 0]) for i in range(n_orb+1)]
+    t_vec = np.array([s_list[i+1] - s_list[i] for i in range(n_orb)])
+    t_vec = np.array(2*t_vec, int)
+    t_vec = t_vec/2
+    return list(t_vec)
+
+def determine_t_vec(csf_state, orbitals):
+    """
+    Determine the genealogy vector from the csf state [SD vectors, int of SD, coeff], over specified orbitals
+
+    csf_state: list[list[array], list[int], array] - list of SDs and coefficient array for the CSF
+    orbitals: list[int] - singly occupied orbitals involved in singlet creation (SOMOs)
+    
+    """
+
+    arr = get_state_from_csf_data(csf_state=csf_state, orbitals=orbitals)
+    return get_t_vec(arr, len(orbitals))
+
+def get_csfs_from_dump(input_file):
+
+    with open(input_file,'rb') as f:
+        list_CSF,list_list_ia_CSF,list_list_theta_CSF,list_sym_CSF_vec,list_UCSF_tz,list_UCSF_smik,\
+        list_list_SOMO_UCSF_smik,psi_GS_UCSF_smik,list_orb_rot,x_orbrot,Enuc,obt_spatial,tbt_spatial = pickle.load(f)
+    
+    n_orb=len(tbt_spatial)
+    print(n_orb)
+    ne = sum(list_CSF[0][0][0])
+    csfs = []
+
+    for iCSF in range(len(list_CSF)):
+        list_ia = list_list_ia_CSF[iCSF]
+        orbitals = list_list_SOMO_UCSF_smik[iCSF]
+
+        if len(list_ia) == 0:
+            
+            excitations = []
+        else:
+            list_theta = list_list_theta_CSF[iCSF]
+            n_U_train = len(list_theta) // len(list_ia)
+
+            excitations = []
+
+            for i_train in range(n_U_train):
+
+                for ipair in range(len(list_ia)):
+
+                    exc = list_ia[ipair]
+                    theta = list_theta[ipair+i_train*len(list_ia)]
+                    
+                    if len(exc) == 1:
+                        excitations.append(PairedExcitationRotation(exc, -theta, n_orb)) ### note the -ve
+                    elif len(exc) == 2:
+                        excitations.append(SymmetricPairedExcitationRotation(exc, -theta, n_orb))
+        
+        csf = CSF(determine_t_vec(list_CSF[iCSF], orbitals), orbitals=orbitals, n_orb=n_orb, ne = ne, excitations=excitations)
+        csfs.append(csf)
+    
+    return csfs
 
 class CSF:
     """
