@@ -269,7 +269,7 @@ def get_t_vec(state, n_orb):
 
     s_list = [get_s((state.T @ (get_sparse_operator(s_squared_operator(i), 2*n_orb)) @ state).toarray()[0, 0]) for i in range(n_orb+1)]
     t_vec = np.array([s_list[i+1] - s_list[i] for i in range(n_orb)])
-    t_vec = np.array(2*t_vec, int)
+    t_vec = np.array(np.rint(2*t_vec), int)
     t_vec = t_vec/2
     return list(t_vec)
 
@@ -319,7 +319,11 @@ def get_csfs_from_dump(input_file):
                     if len(exc) == 1:
                         excitations.append(PairedExcitationRotation(exc, -theta, n_orb)) ### note the -ve
                     elif len(exc) == 2:
-                        excitations.append(SymmetricPairedExcitationRotation(exc, -theta, n_orb))
+                        if len(set.intersection(set(exc[0]), set(exc[1]))) == 1:
+                            excitations.append(SymmetricPairedExcitationRotation(exc, -theta, n_orb))
+                        else:
+                            excitations.append(PairedExcitationRotation([exc[0]], -theta, n_orb))
+                            excitations.append(PairedExcitationRotation([exc[1]], -theta, n_orb))
         
         csf = CSF(determine_t_vec(list_CSF[iCSF], orbitals), orbitals=orbitals, n_orb=n_orb, ne = ne, excitations=excitations)
         csfs.append(csf)
@@ -397,6 +401,9 @@ class CSF:
         to_add = np.ceil(excess_elec/2)
 
         d_occ = np.array([0]*self.n_orb)
+
+        if excess_elec == 0:
+            return d_occ
 
         added = 0
         for i in range(self.n_orb):

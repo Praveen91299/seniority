@@ -71,9 +71,10 @@ def build_ext_swap_circuit(CSF0: CSF, CSF1: CSF, verbose=False):
         elif occ0[idx]:
             occ0_only.append(target_qubits[idx])
 
-    qc.x(common)
-    qc.cx(control_qubit, occ0_only, ctrl_state=0)
-    qc.cx(control_qubit, occ1_only, ctrl_state=1)
+    if len(common) > 0: qc.x(common)
+
+    if len(occ0_only) > 0: qc.cx(control_qubit, occ0_only, ctrl_state=0)
+    if len(occ1_only) > 0: qc.cx(control_qubit, occ1_only, ctrl_state=1)
 
     csf0 = CSF0.get_tapered_csf_circuit(False).to_gate()
     csf1 = CSF1.get_tapered_csf_circuit(False).to_gate()
@@ -142,4 +143,4 @@ def build_ext_swap_circuit(CSF0: CSF, CSF1: CSF, verbose=False):
 
     ## TODO Add measurement circuit
 
-    return qc #circuit and parameter map
+    return qc, exc_common_list #circuit and parameter map
