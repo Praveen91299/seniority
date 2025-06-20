@@ -2,6 +2,7 @@ import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from seniority.circuits_pair_excitation import PairedExcitationRotation, SymmetricPairedExcitationRotation
+from seniority.utils_circuit import show_state
 from scipy import sparse as sp
 from openfermion import s_squared_operator, get_sparse_operator
 import pickle
@@ -285,7 +286,41 @@ def determine_t_vec(csf_state, orbitals):
     arr = get_state_from_csf_data(csf_state=csf_state, orbitals=orbitals)
     return get_t_vec(arr, len(orbitals))
 
-def get_csfs_from_dump(input_file):
+from typing import Dict
+def get_tapered_state_from_UCSF(UCSF):
+    """
+    Returns state as dictionary of {bit_string: coeff}
+
+    """
+    def make_bin_str(arr):
+
+        return ''.join(map(str, np.array(arr, int)))
+    
+    strings = [make_bin_str(state[::2]) for state in UCSF[0]]
+    state: Dict[str, complex] = {}
+    for i, string in enumerate(strings):
+        state[string] = UCSF[2][i]
+    
+    return state
+
+def compare_states(s1, s2, tol=1e-5):
+    """
+    compare UCSF states elementwise, upto tol
+
+    """
+    
+    for k, v in zip(s1.keys(), s1.values()):
+        if abs(v) >= tol:
+            if k not in s2.keys():
+                return False
+            
+            diff = abs(v - s2[k])
+            if diff >= tol:
+                return False
+
+    return True
+
+def get_csfs_from_dump(input_file, verify_states = False):
 
     with open(input_file,'rb') as f:
         list_CSF,list_list_ia_CSF,list_list_theta_CSF,list_sym_CSF_vec,list_UCSF_tz,list_UCSF_smik,\
@@ -317,24 +352,36 @@ def get_csfs_from_dump(input_file):
                     theta = list_theta[ipair+i_train*len(list_ia)]
                     
                     if len(exc) == 1:
-                        excitations.append(PairedExcitationRotation(exc, -theta, n_orb)) ### note the -ve
+                        excitations.append(PairedExcitationRotation(exc, theta, n_orb)) ### note the -ve
                     elif len(exc) == 2:
                         if len(set.intersection(set(exc[0]), set(exc[1]))) == 1:
-                            excitations.append(SymmetricPairedExcitationRotation(exc, -theta, n_orb))
+                            excitations.append(SymmetricPairedExcitationRotation(exc, theta, n_orb))
                         else:
-                            excitations.append(PairedExcitationRotation([exc[0]], -theta, n_orb))
-                            excitations.append(PairedExcitationRotation([exc[1]], -theta, n_orb))
+                            excitations.append(PairedExcitationRotation([exc[0]], theta, n_orb))
+                            excitations.append(PairedExcitationRotation([exc[1]], theta, n_orb))
         
         csf = CSF(determine_t_vec(list_CSF[iCSF], orbitals), orbitals=orbitals, n_orb=n_orb, ne = ne, excitations=excitations)
         csfs.append(csf)
     
+    if verify_states:
+        states = [get_tapered_state_from_UCSF(UCSF) for UCSF in list_UCSF_smik]
+        states_from_circuit = [show_state(csf.get_tapered_full_circuit()) for csf in csfs]
+        assert len(states) == len(states_from_circuit)
+
+        checks = [compare_states(s1, s2) for s1, s2 in zip(states, states_from_circuit)]
+        if all(checks):
+            print("GET CSFS FROM DUMP: states prepared and verified from dump file.")
+        else:
+            print(checks)
+            raise Exception("GET CSFS FROM DUMP: Prepared CSF states do not match.")
+
     return csfs
 
 class CSF:
     """
     Class to store CSF object, their corresponding excitation rotations, and retrieve normal and tapered circuits
 
-    t_vec : list[float] - genealogy path, consisting of \pm 1/2 of length N=len(orbitals) (Note S, M = 0 always (siglet))
+    t_vec : list[float] - genealogy path, consisting of +/- 1/2 of length N=len(orbitals) (Note S, M = 0 always (siglet))
     orbitals : list[int] - orbitals involved in singlet state (unpaired orbitals)
     n_orb : Total number of spatial orbitals
     ne : number of electrons

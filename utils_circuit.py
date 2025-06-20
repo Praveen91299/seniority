@@ -7,7 +7,7 @@ import numpy as np
 def count_cx_gates(circuit: QuantumCircuit):
     return sum(1 for instr, qargs, cargs in circuit.data if instr.name == 'cx')
 
-def show_state(qc: QuantumCircuit, tol=1e-5, reverse=True):
+def show_state(qc: QuantumCircuit, tol=1e-5, reverse=True, silent=True):
     """
     Show and return quantum state prepared by the circuit. 
     
@@ -26,7 +26,7 @@ def show_state(qc: QuantumCircuit, tol=1e-5, reverse=True):
         basis = format(i, f'0{state.num_qubits}b')
         
         if abs(amplitude) >=tol:
-            print(f"|{basis}⟩: {amplitude}")
+            if not silent: print(f"|{basis}⟩: {amplitude}")
             state_dict[basis] = amplitude
     
     return state_dict

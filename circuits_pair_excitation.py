@@ -1,27 +1,31 @@
 from __future__ import annotations
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import PauliEvolutionGate
-from qiskit.quantum_info import SparsePauliOp
+from qiskit.quantum_info import Operator
 import numpy as np
-from openfermion import QubitOperator
-from seniority.utils_circuit import qubit_op_to_sparse_pauli_op
+from openfermion import QubitOperator, FermionOperator, jordan_wigner, get_sparse_operator, taper_off_qubits
+from seniority.utils_circuit import qubit_op_to_sparse_pauli_op, show_operator_matrix, check_equivalent_operators
+import scipy.sparse as sp
+
+Tia = lambda i, a: FermionOperator('{}^ {}^ {} {}'.format(2*a, 2*a + 1, 2*i + 1, 2*i), 1.0) - FermionOperator('{}^ {}^ {} {}'.format(2*i, 2*i + 1, 2*a + 1, 2*a), 1.0)
+Tia_tap = lambda i, a: 1.j/2 * (QubitOperator(f'Y{i} X{a}', 1.0) - QubitOperator(f'X{i} Y{a}', 1.0)) # TAP[a_{2a}^a_{2a+1}^a_{2i + 1}a_{2i} - h.c]
 
 def append_tapered_exc_rot(qc: QuantumCircuit, i, a, theta):
     """
-    Append tapered rotation, exp(0.5*i*theta*(XiYa - YiXa))
+    Append tapered rotation, exp(0.5*i*theta*(XaYi - YaXi))
 
     """
 
-    qc.rz(np.pi/2, a)
-    qc.rx(np.pi/2, a)
+    qc.rz(np.pi/2, i)
     qc.rx(np.pi/2, i)
-    qc.cx(a, i)
-    qc.rx(theta, a)
-    qc.rz(theta, i)
-    qc.cx(a, i)
-    qc.rx(-np.pi/2, a)
+    qc.rx(np.pi/2, a)
+    qc.cx(i, a)
+    qc.rx(theta, i)
+    qc.rz(theta, a)
+    qc.cx(i, a)
     qc.rx(-np.pi/2, i)
-    qc.rz(-np.pi/2, a)
+    qc.rx(-np.pi/2, a)
+    qc.rz(-np.pi/2, i)
 
 def append_tapered_ctrl_exc_rot(qc: QuantumCircuit, c, i, a, theta):
     """
@@ -29,22 +33,22 @@ def append_tapered_ctrl_exc_rot(qc: QuantumCircuit, c, i, a, theta):
 
     """
 
-    qc.rz(np.pi/2, i)
-    qc.ry(-np.pi/2, a)
-    qc.rz(-np.pi/2, a)
-    qc.cx(i, a)
     qc.rz(np.pi/2, a)
-    qc.ry(np.pi/2, a)
+    qc.ry(-np.pi/2, i)
+    qc.rz(-np.pi/2, i)
+    qc.cx(a, i)
+    qc.rz(np.pi/2, i)
+    qc.ry(np.pi/2, i)
 
-    qc.ry(-theta/2, i)
-    qc.cz(c, i)
-    qc.ry(theta/2, i)
-    qc.cz(i, a)
-    qc.ry(-theta/2, i)
-    qc.cz(c, i)
-    qc.ry(theta/2, i)
+    qc.ry(-theta/2, a)
+    qc.cz(c, a)
+    qc.ry(theta/2, a)
+    qc.cz(a, i)
+    qc.ry(-theta/2, a)
+    qc.cz(c, a)
+    qc.ry(theta/2, a)
 
-    qc.cx(i, a)
+    qc.cx(a, i)
 
 def append_tapered_ctrl_exc_rot_comb(qc, c, i, a, theta0, theta1):
     """
@@ -56,22 +60,22 @@ def append_tapered_ctrl_exc_rot_comb(qc, c, i, a, theta0, theta1):
     delta = theta1 - theta0
     sigma = theta1 + theta0
 
-    qc.rz(np.pi/2, i)
-    qc.ry(-np.pi/2, a)
-    qc.rz(-np.pi/2, a)
-    qc.cx(i, a)
     qc.rz(np.pi/2, a)
-    qc.ry(np.pi/2, a)
+    qc.ry(-np.pi/2, i)
+    qc.rz(-np.pi/2, i)
+    qc.cx(a, i)
+    qc.rz(np.pi/2, i)
+    qc.ry(np.pi/2, i)
 
-    qc.ry(-sigma/2, i)
-    qc.cz(c, i)
-    qc.ry(delta/2, i)
-    qc.cz(i, a)
-    qc.ry(-delta/2, i)
-    qc.cz(c, i)
-    qc.ry(sigma/2, i)
+    qc.ry(-sigma/2, a)
+    qc.cz(c, a)
+    qc.ry(delta/2, a)
+    qc.cz(a, i)
+    qc.ry(-delta/2, a)
+    qc.cz(c, a)
+    qc.ry(sigma/2, a)
 
-    qc.cx(i, a)
+    qc.cx(a, i)
 
 ### symmetric pair excitations
 
@@ -88,7 +92,7 @@ def append_tapered_sym_exc_rot(qc: QuantumCircuit, i, a, b, theta):
     qc.cx(b, a)
 
     qc.cx(b, i)
-    qc.ry(theta= -np.sqrt(2)*theta, qubit=b)
+    qc.ry(theta= np.sqrt(2)*theta, qubit=b)
     qc.cx(b, i)
     qc.cx(a, b)
 
@@ -99,7 +103,7 @@ def append_tapered_sym_exc_rot(qc: QuantumCircuit, i, a, b, theta):
     qc.ry(theta= +np.pi/4, qubit=a)
     qc.cx(a, i)
     qc.cx(i, b)
-    qc.ry(theta= -np.sqrt(2)*theta, qubit=i)
+    qc.ry(theta= np.sqrt(2)*theta, qubit=i)
     qc.cx(i, b)
     qc.cx(a, i)
     qc.ry(theta= -np.pi/4, qubit=a)
@@ -121,9 +125,9 @@ def append_tapered_ctrl_sym_exc_rot(qc: QuantumCircuit, c, i, a, b, theta):
     qc.cx(b, i)
 
     qc.cx(c, b)
-    qc.ry(theta= theta/np.sqrt(2), qubit=b)
-    qc.cx(c, b)
     qc.ry(theta= -theta/np.sqrt(2), qubit=b)
+    qc.cx(c, b)
+    qc.ry(theta= theta/np.sqrt(2), qubit=b)
     
     qc.cx(b, i)
     qc.cx(a, b)
@@ -139,9 +143,9 @@ def append_tapered_ctrl_sym_exc_rot(qc: QuantumCircuit, c, i, a, b, theta):
     qc.cx(i, b)
     
     qc.cx(c, i)
-    qc.ry(theta= theta/np.sqrt(2), qubit=i)
-    qc.cx(c, i)
     qc.ry(theta= -theta/np.sqrt(2), qubit=i)
+    qc.cx(c, i)
+    qc.ry(theta= theta/np.sqrt(2), qubit=i)
     
     qc.cx(i, b)
     qc.cx(a, i)
@@ -156,8 +160,8 @@ def append_tapered_ctrl_sym_exc_rot_comb(qc, c, i, a, b, theta0, theta1):
     
     """
 
-    a0 = -np.sqrt(2)*theta0
-    a1 = -np.sqrt(2)*theta1
+    a0 = np.sqrt(2)*theta0
+    a1 = np.sqrt(2)*theta1
     delta = (a1 - a0)
     sigma = (a1 + a0)
     
@@ -197,6 +201,131 @@ def append_tapered_ctrl_sym_exc_rot_comb(qc, c, i, a, b, theta0, theta1):
     qc.ry(theta= -np.pi/4, qubit=a)
     qc.cx(i, a)
     qc.cx(a, b)
+
+def check_pair_excitations():
+    """
+    Check construction of all pair excitation circuits
+    
+    """
+    # tapered excitation generator check
+    tapered_exact = taper_off_qubits(jordan_wigner(Tia(0, 1)), [QubitOperator('Z0 Z1'), QubitOperator('Z2 Z3')], manual_input=True, fixed_positions=[1, 3], output_tapered_positions=True)
+    ctrl = lambda c, state: 0.5*(1 + QubitOperator(f'Z{c}', (-1)**state))
+
+    orb_i, orb_a, orb_b = 0, 1, 2
+
+    assert Tia_tap(0, 1) == tapered_exact[0]
+
+    # tapered pair excitation
+    theta = np.random.rand()
+    
+    i, a = orb_i, orb_a
+    U_exact = sp.linalg.expm(theta * get_sparse_operator(Tia_tap(i, a), 2))
+    qc = QuantumCircuit(2)
+    append_tapered_exc_rot(qc, i, a, theta)
+
+    assert check_equivalent_operators(U_exact, show_operator_matrix(qc))
+
+    PER = PairedExcitationRotation([[orb_i, orb_a]], theta, 2)
+    qc= QuantumCircuit(2)
+    PER.append_tapered_circuit(qc, qc.qubits)
+
+    assert check_equivalent_operators(U_exact, show_operator_matrix(qc))
+
+    m = Operator(PER.get_PauliEvolutionGate(True)).reverse_qargs().to_matrix()
+    qc = QuantumCircuit(2)
+
+    PER.append_tapered_circuit(qc, [i, a])
+
+    assert check_equivalent_operators(m, show_operator_matrix(qc))
+    
+    # controlled tapered pair excitation
+    theta = np.random.rand()
+    
+    c, i, a = 0, orb_i + 1, orb_a + 1
+    U_exact = sp.linalg.expm(theta * get_sparse_operator(ctrl(c, 1) * Tia_tap(i, a), 3))
+    qc = QuantumCircuit(3)
+    append_tapered_ctrl_exc_rot(qc, c, i, a, theta)
+    U = show_operator_matrix(qc)
+
+    assert check_equivalent_operators(U_exact, U)
+
+    PER = PairedExcitationRotation([[orb_i, orb_a]], theta, 2) # -1 due to c = 0
+    qc= QuantumCircuit(3)
+    PER.append_controlled_tapered_circuit(qc, c, [i, a])
+
+    assert check_equivalent_operators(U_exact, show_operator_matrix(qc))
+
+    # combined controlled tapered pair excitations
+    theta0, theta1 = np.random.rand(), np.random.rand()
+
+    c, i, a = 0, orb_i + 1, orb_a + 1
+    U_exact = sp.linalg.expm(theta0 * get_sparse_operator(ctrl(c, 0) * Tia_tap(i, a), 3)) @ sp.linalg.expm(theta1 * get_sparse_operator(ctrl(c, 1) * Tia_tap(i, a), 3))
+    qc = QuantumCircuit(3)
+    append_tapered_ctrl_exc_rot_comb(qc, c, i, a, theta0, theta1)
+    U = show_operator_matrix(qc)
+
+    assert check_equivalent_operators(U_exact, U)
+
+    PER0 = PairedExcitationRotation([[orb_i, orb_a]], theta0, 2) # -1 due to c = 0
+    PER1 = PairedExcitationRotation([[orb_i, orb_a]], theta1, 2) # -1 due to c = 0
+    qc= QuantumCircuit(3)
+    PER0.append_combined_controlled_tapered_circuit(PER1, qc, c, [i, a], 0)
+
+    assert check_equivalent_operators(U_exact, show_operator_matrix(qc))
+
+    # tapered symmetrized pair excitation
+    theta = np.random.rand()
+
+    i, a, b = orb_i, orb_a, orb_b
+    U_exact = sp.linalg.expm(theta*get_sparse_operator(Tia_tap(i, a) + Tia_tap(i, b), 3))
+    qc= QuantumCircuit(3)
+    append_tapered_sym_exc_rot(qc, i, a, b, theta)
+    U = show_operator_matrix(qc)
+    
+    assert check_equivalent_operators(U_exact, U)
+
+    SPER = SymmetricPairedExcitationRotation([[orb_i, orb_a], [orb_i, orb_b]], theta, 3)
+    qc = QuantumCircuit(3)
+    SPER.append_tapered_circuit(qc, [i, a, b])
+
+    assert check_equivalent_operators(U_exact, show_operator_matrix(qc))
+    
+    # controlled tapered symmetrized pair excitation
+    theta = np.random.rand()
+
+    c, i, a, b = 0, 1, 2, 3
+    U_exact = sp.linalg.expm(theta*get_sparse_operator(ctrl(c, 1)*(Tia_tap(i, a) + Tia_tap(i, b)), 4))
+    qc = QuantumCircuit(4)
+    append_tapered_ctrl_sym_exc_rot(qc, c, i, a, b, theta)
+    U = show_operator_matrix(qc)
+
+    assert check_equivalent_operators(U_exact, U)
+
+    SPER = SymmetricPairedExcitationRotation([[orb_i, orb_a], [orb_i, orb_b]], theta, 3)
+    qc = QuantumCircuit(4)
+    SPER.append_controlled_tapered_circuit(qc, c, [i, a, b])
+
+    assert check_equivalent_operators(U_exact, show_operator_matrix(qc))
+
+    # combined controlled tapered symmetrized pair excitation
+    theta0, theta1 = np.random.rand(), np.random.rand()
+
+    c, i, a, b = 0, 1, 2, 3
+    U_exact = sp.linalg.expm(theta0 * get_sparse_operator(ctrl(c, 0) * (Tia_tap(i, a) + Tia_tap(i, b)), 4)) @ sp.linalg.expm(theta1 * get_sparse_operator(ctrl(c, 1) * (Tia_tap(i, a) + Tia_tap(i, b)), 4))
+    qc = QuantumCircuit(4)
+    append_tapered_ctrl_sym_exc_rot_comb(qc, c, i, a, b, theta0, theta1)
+    U = show_operator_matrix(qc)
+
+    assert check_equivalent_operators(U_exact, U)
+
+    SPER0 = SymmetricPairedExcitationRotation([[orb_i, orb_a], [orb_i, orb_b]], theta0, 3)
+    SPER1 = SymmetricPairedExcitationRotation([[orb_i, orb_a], [orb_i, orb_b]], theta1, 3)
+    qc = QuantumCircuit(4)
+    SPER0.append_combined_controlled_tapered_circuit(SPER1, qc, c, [i, a, b], 0)
+
+    assert check_equivalent_operators(U_exact, show_operator_matrix(qc))
+
+    return True
 
 class PairedExcitationRotation:
     """
@@ -241,20 +370,24 @@ class PairedExcitationRotation:
 
         if taper:
             i, a = self.get_indices()
-            generators_of = [QubitOperator('X{} Y{}'.format(i, a), 1.0) - QubitOperator('Y{} X{}'.format(i, a), 1.0)] # commuting
+            generators_of = [-1.j * Tia_tap(i, a)] # commuting
             generators = [qubit_op_to_sparse_pauli_op(gen, self.n_orb) for gen in generators_of]
+        else:
+            i, a = self.get_indices()
+            generators_of = [-1.j * Tia(i, a)]
+            generators = [qubit_op_to_sparse_pauli_op(gen, 2*self.n_orb) for gen in generators_of]
 
         return generators
     
-    def get_PauliEvolutionGate(self):
+    def get_PauliEvolutionGate(self, taper = True):
         """
         Returns qiskit.circuit.library.PauliEvolutionGate object 
         
         exp(i*0.5*theta*G)
         
         """
-        generators = self.get_generators()
-        time = -0.5*self.theta
+        generators = self.get_generators(taper)
+        time = - self.theta
 
         return PauliEvolutionGate(operator=generators, time=time)
     
@@ -335,12 +468,16 @@ class SymmetricPairedExcitationRotation(PairedExcitationRotation):
         """
         Returns generators of the symmetrized pair excitation, grouped into commuting terms
         """
-        
-        if taper:
-            i, a, b = self.get_indices()
-            generators_of = [QubitOperator('X{} Y{}'.format(i, a), 1.0) - QubitOperator('Y{} X{}'.format(i, a), 1.0),
-                             QubitOperator('X{} Y{}'.format(i, b), 1.0) - QubitOperator('Y{} X{}'.format(i, b), 1.0)] # commuting
+        i, a, b = self.get_indices()
+
+        if taper:    
+            generators_of = [-1.j * Tia_tap(i, a),
+                             -1.j * Tia_tap(i, b)] # commuting
             generators = [qubit_op_to_sparse_pauli_op(gen, self.n_orb) for gen in generators_of]
+        else:
+            generators_of = [-1.j * Tia(i, a),
+                             -1.j * Tia(i, b)] # commuting
+            generators = [qubit_op_to_sparse_pauli_op(gen, 2*self.n_orb) for gen in generators_of]
 
         return generators
 
