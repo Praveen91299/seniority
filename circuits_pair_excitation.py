@@ -387,7 +387,7 @@ class PairedExcitationRotation:
         
         """
         generators = self.get_generators(taper)
-        time = - self.theta
+        time = - self.get_theta()
 
         return PauliEvolutionGate(operator=generators, time=time)
     
@@ -445,10 +445,11 @@ class PairedExcitationRotation:
 class SymmetricPairedExcitationRotation(PairedExcitationRotation):
     def __init__(self, excitations, theta, n_orb):
         self.n_orb = n_orb
-        self.theta = theta
-
         self.check_excitation(excitations, self.n_orb)
         self.excitations = excitations
+
+        self.check_theta_negation()
+        self.theta = theta
 
     def get_common_index(self):
         return set.intersection(set(self.excitations[0]), set(self.excitations[1])).pop()
@@ -480,6 +481,12 @@ class SymmetricPairedExcitationRotation(PairedExcitationRotation):
             generators = [qubit_op_to_sparse_pauli_op(gen, 2*self.n_orb) for gen in generators_of]
 
         return generators
+    
+    def get_theta(self):
+        if self._negate_theta:
+            return -self.theta
+        else:
+            return self.theta
 
     @classmethod
     def check_excitation(cls, excitations, n_orb):
@@ -488,6 +495,12 @@ class SymmetricPairedExcitationRotation(PairedExcitationRotation):
         assert len(excitations[0]) == 2 and len(excitations[1]) == 2, "Wrong number of indices for excitations"
         assert excitations[0][0] < n_orb and excitations[0][1] < n_orb and excitations[1][0] < n_orb and excitations[1][1] < n_orb, "Orbital index exceeds available orbitals"
         assert len(set.union(set(excitations[0]), set(excitations[1]))) == 3, "Symmetric excitation invalid"
+
+    def check_theta_negation(self):
+        if self.excitations[0][1] == self.excitations[1][1]:
+            self._negate_theta = True
+        else:
+            self._negate_theta = False
     
     def append_tapered_circuit(self, qc: QuantumCircuit, target_qubits):
         """

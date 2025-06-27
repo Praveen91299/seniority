@@ -424,7 +424,7 @@ class CSF:
 
             append_tapered_Stt_circuit(qc, i, j, a, b)
         elif self.t_vec == [1/2, -1/2, 1/2, -1/2]:
-            i, j, a, b = self.orbitals
+            i, a, j, b = self.orbitals
             assert i < j and a < b, 'i: {} j: {} a: {} b: {}'.format(i, j, a, b)
 
             append_tapered_Sss_circuit(qc, i, j, a, b)
