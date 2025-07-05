@@ -320,6 +320,49 @@ def compare_states(s1, s2, tol=1e-5):
 
     return True
 
+def find_sen_orb(state, target_seniority=2):
+    """
+    Find doubly occupied orbitals from 2n_o qubit state, provided as a set of SD and coefficients, etc
+    
+    """
+
+    SDs = state[0]
+    SD = SDs[0]
+
+    orb_sen = SD[::2] + SD[1::2]
+    doub_occ = np.array(orb_sen == target_seniority, int)
+
+    orbitals = [i for i in range(len(doub_occ)) if doub_occ[i]]
+    
+    return doub_occ, orbitals
+
+
+def fill_doubly_occ(ne, n_orb, somo):
+    """
+    Fill upto ne electrons in n_orb orbitals, avoiding somo
+
+    """
+    #fill up from orb 0
+    excess_elec = ne - len(somo)
+    to_add = np.ceil(excess_elec/2)
+
+    d_occ = np.array([0]*n_orb)
+
+    if excess_elec == 0:
+        return d_occ
+
+    added = 0
+    for i in range(n_orb):
+
+        if i not in somo:
+            d_occ[i] = 1
+            added += 1
+        
+        if added == to_add:
+            return d_occ
+    
+    raise ValueError('Insufficient orbitals {} for {} electrons and {} singly occupied orbitals'.format(n_orb, ne, len(somo)))
+
 def get_csfs_from_dump(input_file, verify_states = False):
 
     with open(input_file,'rb') as f:
@@ -360,7 +403,12 @@ def get_csfs_from_dump(input_file, verify_states = False):
                             excitations.append(PairedExcitationRotation([exc[0]], theta, n_orb))
                             excitations.append(PairedExcitationRotation([exc[1]], theta, n_orb))
         
-        csf = CSF(determine_t_vec(list_CSF[iCSF], orbitals), orbitals=orbitals, n_orb=n_orb, ne = ne, excitations=excitations)
+        csf_state = list_CSF[iCSF]
+        t_vec = determine_t_vec(list_CSF[iCSF], orbitals)
+        doub_occ, domo = find_sen_orb(csf_state, 2)
+        sing_occ, somo = find_sen_orb(csf_state, 1)
+
+        csf = CSF(t_vec, orbitals=somo, n_orb=n_orb, ne = ne, excitations=excitations, doub_occ=doub_occ)
         csfs.append(csf)
     
     if verify_states:
@@ -377,6 +425,82 @@ def get_csfs_from_dump(input_file, verify_states = False):
 
     return csfs
 
+def get_Uext_csfs_from_dump(input_file, verify_states=False, use_opt_amplitudes=True):
+    """
+    Import, construct, and verify CSF class objects for Uext formalism
+
+    input_file (str)
+    
+    """
+
+    with open(input_file,'rb') as f:
+        list_list_refCSF,list_list_Uext_mp2_CSF,list_list_Uext_mp2_ampld,list_list_Uext_opt_ampld,list_orb_rot,x_orbrot,Enuc,obt_spatial,tbt_spatial = pickle.load(f)
+    
+    n_orb = len(tbt_spatial)
+    print(f"Importing CSFs from {input_file}\nOrbitals: {n_orb}")
+    ne = int(sum(list_list_refCSF[0][0][0][0]))
+    csfs = []
+
+    if use_opt_amplitudes:
+        print("Using optimized excitation amplitudes...")
+        list_list_amplitudes = list_list_Uext_opt_ampld
+    else:
+        print("Using MP2 excitation amplitudes...")
+        list_list_amplitudes = list_list_Uext_mp2_ampld
+    
+    for i_refcsf, list_refCSF in enumerate(list_list_refCSF):
+        #particular csf group
+        list_excitations = list_list_amplitudes[i_refcsf]
+
+        if len(list_excitations) == 0:
+            excitations = []
+        else:
+            excitations = []
+            for excitation in list_excitations:
+
+                exc = excitation[0]
+                theta = excitation[1]
+
+                if len(exc) == 1:
+                    excitations.append(PairedExcitationRotation(exc, theta, n_orb))
+                elif len(exc) == 2:
+                    if len(set.intersection(set(exc[0]), set(exc[1]))) == 1:
+                        excitations.append(SymmetricPairedExcitationRotation(exc, theta, n_orb))
+                    else:
+                        excitations.append(PairedExcitationRotation([exc[0]], theta, n_orb))
+                        excitations.append(PairedExcitationRotation([exc[1]], theta, n_orb))
+        
+        for j, state in enumerate(list_refCSF):
+            doub_occ, domo = find_sen_orb(state, 2)
+            sing_occ, somo = find_sen_orb(state, 1)
+            t_vec = determine_t_vec(state, somo)
+
+            csf = CSF(t_vec, orbitals=somo, n_orb=n_orb, ne = ne, excitations=excitations, doub_occ=doub_occ)
+            csfs.append(csf)
+
+    ###verify
+    if verify_states:
+
+        if use_opt_amplitudes:
+            print("WARNING: State verification currently not available. CSF objects not verified.")
+        else:
+            states = []
+            for i, list_mp2_UCSF in enumerate(list_list_Uext_mp2_CSF):
+                for j, mp2_UCSF in enumerate(list_mp2_UCSF):
+                    states.append(get_tapered_state_from_UCSF(mp2_UCSF))
+            
+            states_from_circuit = [show_state(csf.get_tapered_full_circuit()) for csf in csfs]
+            assert len(states) == len(states_from_circuit)
+
+            checks = [compare_states(s1, s2) for s1, s2 in zip(states, states_from_circuit)]
+            if all(checks):
+                print("GET CSFS FROM DUMP: states prepared and verified from dump file.")
+            else:
+                print(checks)
+                raise Exception("GET CSFS FROM DUMP: Prepared CSF states do not match.")
+    
+    return csfs
+
 class CSF:
     """
     Class to store CSF object, their corresponding excitation rotations, and retrieve normal and tapered circuits
@@ -390,7 +514,7 @@ class CSF:
 
     
     """
-    def __init__(self, t_vec, orbitals, n_orb, ne, excitations : list[PairedExcitationRotation] = []):
+    def __init__(self, t_vec, orbitals, n_orb, ne, excitations : list[PairedExcitationRotation] = [], doub_occ = None):
         self.n_orb = n_orb
         self.t_vec = t_vec
         self.ne = ne
@@ -399,6 +523,11 @@ class CSF:
         assert self.get_num_targ_orb() == len(orbitals), 'Incorrect number of orbitals in {} for genealogy vector: {}'.format(orbitals, self.t_vec)
         self.orbitals = orbitals
         self.excitations = excitations
+
+        if doub_occ is not None:
+            self._doub_occ = doub_occ
+        else:
+            self._doub_occ = fill_doubly_occ(ne = self.ne, n_orb = self.n_orb, somo = self.orbitals)
     
     def get_excitations(self) ->list[PairedExcitationRotation] :
         return self.excitations
@@ -441,28 +570,14 @@ class CSF:
     
     def get_doubly_occ_orbitals(self):
         """
-        Return idx of doubly occupied spatial orbitals
+        Return array with 1 at doubly occupied spatial orbitals
 
         """
-        excess_elec = self.ne - len(self.orbitals)
-        to_add = np.ceil(excess_elec/2)
-
-        d_occ = np.array([0]*self.n_orb)
-
-        if excess_elec == 0:
-            return d_occ
-
-        added = 0
-        for i in range(self.n_orb):
-
-            if i not in self.orbitals:
-                d_occ[i] = 1
-                added += 1
-            
-            if added == to_add:
-                return d_occ
-        
-        raise ValueError('Insufficient orbitals {} for {} electrons and {} singly occupied orbitals'.format(self.n_orb, self.ne, len(self.orbitals)))
+        if self._doub_occ is not None:
+            # if initialized with doubly occ
+            return self._doub_occ
+        else:
+            return fill_doubly_occ(self.ne, self.n_orb, self.orbitals)
 
     def get_tapered_full_circuit(self):
         qc = self.get_tapered_csf_circuit(True)
