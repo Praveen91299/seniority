@@ -95,3 +95,33 @@ print("Transpiled circuit depth: ", min_count_tqc.depth())
 
 # qasm2.dump(ext, save_file)
 # qasm2.dump(ext_t, save_file_transpiled)
+
+from collections import Counter
+
+gate_counts = Counter()
+cx_qubits = []
+
+tqc = min_count_tqc
+
+fidelity = 1.0
+
+# Single-qubit gates
+for instr, qargs, _ in tqc.data:
+    if instr.num_qubits == 1:
+        fidelity *= (1 - 1e-4)
+
+print(fidelity)
+
+for instr, qargs, _ in tqc.data:
+    if instr.num_qubits == 2:
+        fidelity *= (1 - 1e-3)
+
+print(fidelity)
+
+# Readout errors
+for qubit in range(tqc.num_qubits):
+    param = properties.readout_error(qubit)
+    fidelity *= (1 - param)
+
+# Final result
+print(f"Estimated implementation fidelity: {fidelity:.6f}")
