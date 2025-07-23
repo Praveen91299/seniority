@@ -1,4 +1,5 @@
 from openfermion import FermionOperator
+from seniority.circuits_csf import CSF
 from qiskit.result import Result
 
 class SubspaceExpt:
@@ -8,7 +9,7 @@ class SubspaceExpt:
     TODO
     
     """
-    def __init__(self, csf_states, H: FermionOperator, mitigation_options = None, devic_options = None):
+    def __init__(self, csf_states: list[CSF], H: FermionOperator, mitigation_options = None, device_options = None):
 
         self.csf_states =  csf_states
         self.H = H
@@ -47,6 +48,9 @@ class SubspaceExpt:
 
         return
     
+    def make_fragments(self, ):
+        return
+    
     def get_experiment(self, shots):
         """
         Main function to generate instances of circuits and corresponding shots
@@ -55,7 +59,9 @@ class SubspaceExpt:
 
         #get states and circuits
 
-        #fragments, return measurement circuits and estimated shots required from self.H (without mitigation) SMIK TODO
+        ### fragments, return measurement circuits and estimated shots required from self.H (without mitigation) SMIK TODO
+        #get reduced H
+        #fragmenting reduced H
 
         #preprocess for mitigation routines (SV)
 
@@ -65,7 +71,7 @@ class SubspaceExpt:
 
         return
 
-    def get_estimate_from_results(results: list[Result]):
+    def get_estimate_from_results(self, results: list[Result]):
         """
         Returns final estimate and estimated inaccuracy from list[Qiskit.Result]
         
@@ -73,11 +79,12 @@ class SubspaceExpt:
 
         #process results for mitigation routines (SV, readout)
 
-        #build estimates from Dict{bitstring: count} SMIK TODO
+        #build estimates from Dict{bitstring: probability} SMIK TODO
 
         #process for mitigation routines (zne, RefShift)
 
         #process for final estimate
+        #diag stuff
 
         #determine inaccuracy
 
