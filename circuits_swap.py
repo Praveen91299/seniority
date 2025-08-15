@@ -144,3 +144,38 @@ def build_ext_swap_circuit(CSF0: CSF, CSF1: CSF, verbose=False):
     ## TODO Add measurement circuit
 
     return qc, exc_common_list #circuit and parameter map
+
+def parallel_swap(CSF0: CSF, CSF1: CSF):
+    """
+    Prepare ext swap state without controls on pair excitations, based on 10.1103/PRXQuantum.4.030307
+    
+    """
+
+    assert CSF0.n_orb == CSF1.n_orb, "Incompatible CSFs!"
+
+    n_orb = CSF0.n_orb
+    n_qubits = 2 * n_orb + 1
+    qc = QuantumCircuit(n_qubits)
+    qubits = qc.qubits
+
+    control_qubit = qubits[0]
+    register1 = qubits[1:n_orb + 1]
+    register2 = qubits[n_orb + 1: ]
+    qc.h(control_qubit)
+
+    v0 = CSF0.get_tapered_csf_circuit(True).to_gate() # set to True as hf is not shared anymore!!
+    v1 = CSF1.get_tapered_csf_circuit(True).to_gate()
+
+    qc.append(v0.control(1, ctrl_state=0), [control_qubit] + register1)
+    qc.append(v1.control(1, ctrl_state=1), [control_qubit] + register2)
+
+    for exc in CSF0.excitations:
+        exc.append_tapered_circuit(qc, register1)
+    
+    for exc in CSF1.excitations:
+        exc.append_tapered_circuit(qc, register2)
+    
+    for q0, q1 in zip(register1, register2):
+        qc.cswap(control_qubit, q0, q1)
+    
+    return qc
