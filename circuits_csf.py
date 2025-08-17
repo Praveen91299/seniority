@@ -363,14 +363,14 @@ def fill_doubly_occ(ne, n_orb, somo):
     
     raise ValueError('Insufficient orbitals {} for {} electrons and {} singly occupied orbitals'.format(n_orb, ne, len(somo)))
 
-def get_csfs_from_dump(input_file, verify_states = False):
+def get_csfs_from_dump(input_file, verify_states = False, verbose=True):
 
     with open(input_file,'rb') as f:
         list_CSF,list_list_ia_CSF,list_list_theta_CSF,list_sym_CSF_vec,list_UCSF_tz,list_UCSF_smik,\
         list_list_SOMO_UCSF_smik,psi_GS_UCSF_smik,list_orb_rot,x_orbrot,Enuc,obt_spatial,tbt_spatial = pickle.load(f)
     
     n_orb=len(tbt_spatial)
-    print(n_orb)
+    if verbose: print(n_orb)
     ne = sum(list_CSF[0][0][0])
     csfs = []
 
@@ -418,14 +418,14 @@ def get_csfs_from_dump(input_file, verify_states = False):
 
         checks = [compare_states(s1, s2) for s1, s2 in zip(states, states_from_circuit)]
         if all(checks):
-            print("GET CSFS FROM DUMP: states prepared and verified from dump file.")
+            if verbose: print("GET CSFS FROM DUMP: states prepared and verified from dump file.")
         else:
-            print(checks)
+            if verbose: print(checks)
             raise Exception("GET CSFS FROM DUMP: Prepared CSF states do not match.")
 
     return csfs
 
-def get_Uext_csfs_from_dump(input_file, verify_states=False, use_opt_amplitudes=True):
+def get_Uext_csfs_from_dump(input_file, verify_states=False, use_opt_amplitudes=True, verbose =True):
     """
     Import, construct, and verify CSF class objects for Uext formalism
 
@@ -437,15 +437,15 @@ def get_Uext_csfs_from_dump(input_file, verify_states=False, use_opt_amplitudes=
         list_list_refCSF,list_list_Uext_mp2_CSF,list_list_Uext_mp2_ampld,list_list_Uext_opt_ampld,list_orb_rot,x_orbrot,Enuc,obt_spatial,tbt_spatial = pickle.load(f)
     
     n_orb = len(tbt_spatial)
-    print(f"Importing CSFs from {input_file}\nOrbitals: {n_orb}")
+    if verbose: print(f"Importing CSFs from {input_file}\nOrbitals: {n_orb}")
     ne = int(sum(list_list_refCSF[0][0][0][0]))
     csfs = []
 
     if use_opt_amplitudes:
-        print("Using optimized excitation amplitudes...")
+        if verbose: print("Using optimized excitation amplitudes...")
         list_list_amplitudes = list_list_Uext_opt_ampld
     else:
-        print("Using MP2 excitation amplitudes...")
+        if verbose: print("Using MP2 excitation amplitudes...")
         list_list_amplitudes = list_list_Uext_mp2_ampld
     
     for i_refcsf, list_refCSF in enumerate(list_list_refCSF):
@@ -482,7 +482,7 @@ def get_Uext_csfs_from_dump(input_file, verify_states=False, use_opt_amplitudes=
     if verify_states:
 
         if use_opt_amplitudes:
-            print("WARNING: State verification currently not available. CSF objects not verified.")
+            if verbose: print("WARNING: State verification currently not available. CSF objects not verified.")
         else:
             states = []
             for i, list_mp2_UCSF in enumerate(list_list_Uext_mp2_CSF):
@@ -494,9 +494,9 @@ def get_Uext_csfs_from_dump(input_file, verify_states=False, use_opt_amplitudes=
 
             checks = [compare_states(s1, s2) for s1, s2 in zip(states, states_from_circuit)]
             if all(checks):
-                print("GET CSFS FROM DUMP: states prepared and verified from dump file.")
+                if verbose: print("GET CSFS FROM DUMP: states prepared and verified from dump file.")
             else:
-                print(checks)
+                if verbose: print(checks)
                 raise Exception("GET CSFS FROM DUMP: Prepared CSF states do not match.")
     
     return csfs
