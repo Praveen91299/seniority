@@ -97,6 +97,37 @@ def append_tapered_Stt_circuit(qc, i, j, a, b):
     qc.cx(i, b)
     qc.x(i)
 
+###
+"""
+Gate efficient controlled using initial state information of 0s - makes it sufficient to control only single qubit gates.
+
+"""
+def append_ctrl_init0_tapered_Stt(qc, i, j, a, b, ctrl, ctrl_state=1):
+    
+    qc.ch(control_qubit=ctrl, target_qubit=i, ctrl_state=ctrl_state)#
+    qc.cry(theta=(-2)*np.arctan2(1, np.sqrt(2)), target_qubit=j, control_qubit=ctrl, ctrl_state=ctrl_state)#
+    qc.cx(ctrl, a, ctrl_state=ctrl_state)#
+    qc.cx(ctrl, j, ctrl_state=ctrl_state)#
+    qc.cx(j, a)
+    qc.cx(i, j)
+    qc.ch(a, b)
+    qc.cx(b, a)
+    qc.cx(i, a)
+    qc.cx(i, b)
+    qc.cx(ctrl, i, ctrl_state=ctrl_state)#
+
+def append_ctrl_init0_tapered_Tia(qc, i, a, ctrl, ctrl_state=1):
+    qc.cx(ctrl, i, ctrl_state=ctrl_state)#
+    qc.cx(ctrl, a, ctrl_state=ctrl_state)#
+    qc.ch(ctrl, a, ctrl_state=ctrl_state)#
+    qc.cx(control_qubit=a, target_qubit=i)
+
+def append_ctrl_init0_tapered_Sss(qc, i, j, a, b, ctrl, ctrl_state=1):
+    append_ctrl_init0_tapered_Tia(qc, i, a, ctrl, ctrl_state=ctrl_state)
+    append_ctrl_init0_tapered_Tia(qc, j, b, ctrl, ctrl_state=ctrl_state)
+
+###
+
 def CG(S, M, t, sigma):
     """
     Returns Clebsch Gordon coefficient for
@@ -236,12 +267,19 @@ def build_tapered_recursive_CSF_circuit(t_vec, N, S, M):
         
     return qc
 
-def append_x_occ(qc, occ):
+def append_x_occ(qc, occ, target_qubits):
     assert len(qc.qubits) >= len(occ), "Insufficient number of qubits."
 
     for idx, i in enumerate(occ):
         if i == 1:
-            qc.x(idx)
+            qc.x(target_qubits[idx])
+
+def append_cx_occ(qc, occ, target_qubits, ctrl_qubit, ctrl_state=1):
+    assert len(qc.qubits) >= len(occ), "Insufficient number of qubits."
+
+    for idx, i in enumerate(occ):
+        if i == 1:
+            qc.cx(ctrl_qubit, target_qubits[idx], ctrl_state=ctrl_state)
 
 def get_state_from_csf_data(csf_state, orbitals):
     spin_orbs = []
@@ -540,7 +578,7 @@ class CSF:
 
         if add_double_occ:
             occ = self.get_doubly_occ_orbitals()
-            append_x_occ(qc, occ)
+            append_x_occ(qc, occ, qc.qubits)
         
         if self.t_vec == []:
             return qc
@@ -585,7 +623,48 @@ class CSF:
             exc.append_tapered_circuit(qc, qc.qubits)
         
         return qc
-    
+
+    def append_ctrl_tapered_init0_csf_circuit(self, qc, target_qubits, ctrl_qubit, ctrl_state=1, add_double_occ = True):
+        if add_double_occ:
+            occ = self.get_doubly_occ_orbitals()
+            append_cx_occ(qc, occ, target_qubits, ctrl_qubit=ctrl_qubit, ctrl_state=ctrl_state)
+        
+        if self.t_vec == []:
+            return qc
+        elif self.t_vec == [1/2, -1/2]:
+            i, a = self.orbitals
+            iq, aq = target_qubits[i], target_qubits[a]
+
+            append_ctrl_init0_tapered_Tia(qc, iq, aq, ctrl_qubit, ctrl_state)
+        elif self.t_vec == [1/2, 1/2, -1/2, -1/2]:
+            i, j, a, b = self.orbitals
+            iq, jq, aq, bq = target_qubits[i], target_qubits[j], target_qubits[a], target_qubits[b]
+
+            append_ctrl_init0_tapered_Stt(qc, iq, jq, aq, bq, ctrl_qubit, ctrl_state)
+        elif self.t_vec == [1/2, -1/2, 1/2, -1/2]:
+            i, a, j, b = self.orbitals
+            iq, jq, aq, bq = target_qubits[i], target_qubits[j], target_qubits[a], target_qubits[b]
+
+            assert i < j and a < b, 'i: {} j: {} a: {} b: {}'.format(i, j, a, b)
+
+            append_ctrl_init0_tapered_Sss(qc, iq, jq, aq, bq, ctrl_qubit, ctrl_state)
+        else:
+            ### general case
+            # redo hf
+            raise "Unknown T vector, no control gate defined"
+            #TODO recursive controlled with only single qubit gates controlled.
+
+            # N = self.get_num_targ_orb()
+            # S = 0
+            # M = 0
+            # qc.append(build_tapered_recursive_CSF_circuit(self.t_vec, N, S, M).to_gate(), self.orbitals)
+
+    def append_ctrl_tapered_init0_full_circuit(self, qc, target_qubits, ctrl_qubit, ctrl_state=1):
+        self.append_ctrl_tapered_init0_csf_circuit(qc, target_qubits=target_qubits, ctrl_qubit=ctrl_qubit, ctrl_state=ctrl_state, add_double_occ=True)
+
+        for exc in self.excitations:
+            exc.append_tapered_circuit(qc, target_qubits)
+
     def get_parity_string(self):
 
         parity = np.zeros(self.n_orb)

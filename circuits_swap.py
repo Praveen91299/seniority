@@ -163,18 +163,9 @@ def parallel_swap(CSF0: CSF, CSF1: CSF):
     register2 = qubits[n_orb + 1: ]
     qc.h(control_qubit)
 
-    v0 = CSF0.get_tapered_csf_circuit(True).to_gate() # set to True as hf is not shared anymore!!
-    v1 = CSF1.get_tapered_csf_circuit(True).to_gate()
+    CSF0.append_ctrl_tapered_init0_full_circuit(qc, register1, control_qubit, 0)
+    CSF1.append_ctrl_tapered_init0_full_circuit(qc, register2, control_qubit, 1)
 
-    qc.append(v0.control(1, ctrl_state=0), [control_qubit] + register1)
-    qc.append(v1.control(1, ctrl_state=1), [control_qubit] + register2)
-
-    for exc in CSF0.excitations:
-        exc.append_tapered_circuit(qc, register1)
-    
-    for exc in CSF1.excitations:
-        exc.append_tapered_circuit(qc, register2)
-    
     for q0, q1 in zip(register1, register2):
         qc.cswap(control_qubit, q0, q1)
     
