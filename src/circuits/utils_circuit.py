@@ -3,10 +3,12 @@ from qiskit.quantum_info import Statevector
 from openfermion.ops import QubitOperator
 from qiskit.quantum_info import SparsePauliOp, Operator
 import numpy as np
-from seniority.src.measurement.utils_partitioning import sorted_insertion_decomposition, convert_QubitOperator_to_BinaryHamiltonian
+from seniority.src.measurement_new.utils_m4_partitioning import sorted_insertion_decomposition, convert_QubitOperator_to_BinaryHamiltonian
 import tequila as tq
 from qiskit_aer import AerSimulator
 from qiskit import transpile
+from scipy.sparse.linalg import norm
+from scipy.sparse import csr_matrix
 
 def count_cx_gates(circuit: QuantumCircuit):
     return sum(1 for instr, qargs, cargs in circuit.data if instr.name == 'cx')
@@ -173,3 +175,41 @@ def qubit_index(i, qubit_list: list):
         return -1
     
     return qubit_list.index(i)
+
+def int_from_bitstring(bs):
+    return sum([int(ai)<<(len(bs) - 1 - i) for i, ai in enumerate(bs)])
+
+def get_sparse_state(dict_state):
+    """
+    
+    {bitstring: coeff} to sparse row matrix (csr matrix)
+
+    """
+    n_qubits = len(list(dict_state.keys())[0])
+
+    cols = [int_from_bitstring(bs) for bs in dict_state.keys()]
+    vals = list(dict_state.values())
+
+    sparse_state = csr_matrix((vals, (np.zeros_like(cols), cols)), shape=(1, 1<<n_qubits))
+
+    return sparse_state
+
+def verify_circuit_state(circuit, sparse_target_state, truncate_bitstrings = None, tol=1e-5):
+    """
+    verify circuit with sparse state, truncate bit strings if necessary
+    
+    """
+
+    state = show_state(circuit)
+    bit_strings, coeffs = list(state.keys()), list(state.values())
+
+    if truncate_bitstrings is not None:
+        for i in range(len(bit_strings)):
+            bs_new = ''
+            for j in truncate_bitstrings:
+                bs_new += bit_strings[i][j]
+            bit_strings[i] = bs_new 
+    
+    sparse_state = get_sparse_state({k: v for k, v in zip(bit_strings, coeffs)})
+
+    return 1 - abs((sparse_target_state.conjugate() @ sparse_state.T)[(0, 0)]) <= tol

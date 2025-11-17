@@ -172,12 +172,15 @@ def parallel_swap(CSF0: CSF, CSF1: CSF, control_qubit_pos: int =  0):
     
     return qc
 
-def get_parallelswap_subcircuit(CSF0: CSF, CSF1: CSF, quantum_indices: list, control_qubit_pos: int=0):
+def get_parallelswap_subcircuit(CSF0: CSF, CSF1: CSF, quantum_indices: list=None, control_qubit_pos: int=0):
     """
     quantum_indices : list - qubits corresponding to orbitals that are quantum
     """
     #build full circuit
     assert CSF0.n_orb == CSF1.n_orb, "Incompatible CSFs!"
+    if quantum_indices is None:
+        quantum_indices = list(range(CSF0.n_orb))
+    
     n_q = len(quantum_indices)
     assert n_q <= CSF0.n_orb
 

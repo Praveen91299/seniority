@@ -594,28 +594,67 @@ class CSF:
     def get_num_targ_orb(self):
         return len(self.t_vec)
     
-    def get_tapered_csf_circuit(self, add_double_occ = True)->QuantumCircuit:
-        qc = QuantumCircuit(self.n_orb) # 1 for control
+    def get_tapered_csf_circuit(self, add_double_occ = True, quantum_indices = None)->QuantumCircuit:
 
+        if quantum_indices  is not None:
+            assert all([i in list(range(self.n_orb)) for i in quantum_indices]), "Invalid quantum_indices! {}".format(quantum_indices)
+
+            n_qubits = len(quantum_indices)
+        else:
+            n_qubits = self.n_orb
+            quantum_indices = list(range(n_qubits))
+        
+        qc = QuantumCircuit(n_qubits) # 1 for control
+        target_qubits = qc.qubits
+
+        ####
         if add_double_occ:
             occ = self.get_doubly_occ_orbitals()
-            append_x_occ(qc, occ, qc.qubits)
+
+            for idx, i in enumerate(occ):
+                if i == 1 and idx in quantum_indices:
+                    iq = qubit_index(idx, quantum_indices)
+                    qc.x(qc.qubits[iq])
         
         if self.t_vec == []:
             return qc
         elif self.t_vec == [1/2, -1/2]:
             i, a = self.orbitals
-
-            append_tapered_Tia_circuit(qc, i, a)
+            assert all([i in quantum_indices, a in quantum_indices]) or all([i not in quantum_indices, a not in quantum_indices]), "Quantum indices {} do not contain all or none of somos {}".format(quantum_indices, self.orbitals)
+            
+            if all([i in quantum_indices, a in quantum_indices]):
+                iq, aq = target_qubits[qubit_index(i, quantum_indices)], target_qubits[qubit_index(a, quantum_indices)]
+            
+                append_tapered_Tia_circuit(qc, iq, aq)
         elif self.t_vec == [1/2, 1/2, -1/2, -1/2]:
             i, j, a, b = self.orbitals
+            assert all([i in quantum_indices for i in self.orbitals]) or all([i not in quantum_indices for i in self.orbitals]), "Quantum indices {} do not contain all or none of somos {}".format(quantum_indices, self.orbitals)
 
-            append_tapered_Stt_circuit(qc, i, j, a, b)
+            if all([i in quantum_indices for i in self.orbitals]):
+                iq = target_qubits[qubit_index(i, quantum_indices)]
+                jq = target_qubits[qubit_index(j, quantum_indices)]
+                aq = target_qubits[qubit_index(a, quantum_indices)]
+                bq = target_qubits[qubit_index(b, quantum_indices)]
+
+                append_tapered_Stt_circuit(qc, iq, jq, aq, bq)
         elif self.t_vec == [1/2, -1/2, 1/2, -1/2]:
             i, a, j, b = self.orbitals
             assert i < j and a < b, 'i: {} j: {} a: {} b: {}'.format(i, j, a, b)
+            assert all([i in quantum_indices, a in quantum_indices]) or all([i not in quantum_indices, a not in quantum_indices]), "Quantum indices {} do not contain all or none of somos {}".format(quantum_indices, (i, a))
 
-            append_tapered_Sss_circuit(qc, i, j, a, b)
+            if all([i in quantum_indices, a in quantum_indices]):
+                iq = target_qubits[qubit_index(i, quantum_indices)]
+                aq = target_qubits[qubit_index(a, quantum_indices)]
+
+                append_tapered_Tia_circuit(qc, iq, aq)
+            
+            assert all([j in quantum_indices, b in quantum_indices]) or all([j not in quantum_indices, b not in quantum_indices]), "Quantum indices {} do not contain all or none of somos {}".format(quantum_indices, (j, b))
+
+            if all([j in quantum_indices, b in quantum_indices]):
+                jq = target_qubits[qubit_index(j, quantum_indices)]
+                bq = target_qubits[qubit_index(b, quantum_indices)]
+
+                append_tapered_Tia_circuit(qc, jq, bq)
         else:
             ### general case
             # redo hf
@@ -623,7 +662,7 @@ class CSF:
             N = self.get_num_targ_orb()
             S = 0
             M = 0
-            qc.append(build_tapered_recursive_CSF_circuit(self.t_vec, N, S, M).to_gate(), self.orbitals)
+            qc.append(build_tapered_recursive_CSF_circuit(self.t_vec, N, S, M).to_gate(), [qubit_index(idx) for idx in self.orbitals])
         
         return qc
     
@@ -638,10 +677,20 @@ class CSF:
         else:
             return fill_doubly_occ(self.ne, self.n_orb, self.orbitals)
 
-    def get_tapered_full_circuit(self):
-        qc = self.get_tapered_csf_circuit(True)
+    def get_tapered_full_circuit(self, quantum_indices=None):
+        if quantum_indices == None:
+            quantum_indices = list(range(self.n_orb))
+
+        qc = self.get_tapered_csf_circuit(True, quantum_indices=quantum_indices)
+        target_qubits = qc.qubits
+
         for exc in self.excitations:
-            exc.append_tapered_circuit(qc, qc.qubits)
+            i, a = exc.get_indices()
+            assert all([i in quantum_indices, a in quantum_indices]) or all([i not in quantum_indices, a not in quantum_indices]), "Pair excitation cut by qubit partition."
+
+            if all([i in quantum_indices, a in quantum_indices]):
+                iq, aq = qubit_index(i, quantum_indices), qubit_index(a, quantum_indices) #position in the list of quantum qubits
+                append_tapered_exc_rot(qc, target_qubits[iq], target_qubits[aq], exc.get_theta())
         
         return qc
 
@@ -698,35 +747,43 @@ class CSF:
         
         if self.t_vec == []:
             return qc
-        
-        assert all([i in quantum_indices for i in self.orbitals]) or all([i not in quantum_indices for i in self.orbitals]), "Quantum indices do not contain all or none of somos"
+        elif self.t_vec == [1/2, -1/2]:
+            assert all([i in quantum_indices for i in self.orbitals]) or all([i not in quantum_indices for i in self.orbitals]), "Quantum indices {} do not contain all or none of somos {}".format(quantum_indices, self.orbitals)
 
-        if all([i in quantum_indices for i in self.orbitals]):
-            #add controlled CSF circuit
-            
-            if self.t_vec == [1/2, -1/2]:
+            if all([i in quantum_indices for i in self.orbitals]):
                 i, a = self.orbitals
                 iq, aq = target_qubits[qubit_index(i, quantum_indices)], target_qubits[qubit_index(a, quantum_indices)]
 
-                append_ctrl_init0_tapered_Tia(qc, iq, aq, ctrl_qubit, ctrl_state)
-            elif self.t_vec == [1/2, 1/2, -1/2, -1/2]:
-                i, j, a, b = self.orbitals
+                append_ctrl_init0_tapered_Tia(qc, aq, iq, ctrl_qubit, ctrl_state) # TODO fix index/ global phase issue
+        elif self.t_vec == [1/2, 1/2, -1/2, -1/2]:
+            i, j, a, b = self.orbitals
+            assert all([i in quantum_indices for i in self.orbitals]) or all([i not in quantum_indices for i in self.orbitals]), "Quantum indices {} do not contain all or none of somos {}".format(quantum_indices, self.orbitals)
+
+            if all([i in quantum_indices for i in self.orbitals]):
                 iq = target_qubits[qubit_index(i, quantum_indices)]
                 jq = target_qubits[qubit_index(j, quantum_indices)]
                 aq = target_qubits[qubit_index(a, quantum_indices)]
                 bq = target_qubits[qubit_index(b, quantum_indices)]
 
                 append_ctrl_init0_tapered_Stt(qc, iq, jq, aq, bq, ctrl_qubit, ctrl_state)
-            elif self.t_vec == [1/2, -1/2, 1/2, -1/2]:
-                i, a, j, b = self.orbitals
-                iq = target_qubits[qubit_index(i, quantum_indices)]
-                jq = target_qubits[qubit_index(j, quantum_indices)]
-                aq = target_qubits[qubit_index(a, quantum_indices)]
-                bq = target_qubits[qubit_index(b, quantum_indices)]
-                
-                assert i < j and a < b, 'i: {} j: {} a: {} b: {}'.format(i, j, a, b)
+        elif self.t_vec == [1/2, -1/2, 1/2, -1/2]:
+            i, a, j, b = self.orbitals
+            assert i < j and a < b, 'i: {} j: {} a: {} b: {}'.format(i, j, a, b)
+            assert all([i in quantum_indices, a in quantum_indices]) or all([i not in quantum_indices, a not in quantum_indices]), "Quantum indices {} do not contain all or none of somos {}".format(quantum_indices, (i, a))
 
-                append_ctrl_init0_tapered_Sss(qc, iq, jq, aq, bq, ctrl_qubit, ctrl_state)
+            if all([i in quantum_indices, a in quantum_indices]):
+                iq = target_qubits[qubit_index(i, quantum_indices)]
+                aq = target_qubits[qubit_index(a, quantum_indices)]
+
+                append_ctrl_init0_tapered_Tia(qc, iq, aq, ctrl_qubit, ctrl_state)
+            
+            assert all([j in quantum_indices, b in quantum_indices]) or all([j not in quantum_indices, b not in quantum_indices]), "Quantum indices {} do not contain all or none of somos {}".format(quantum_indices, (j, b))
+
+            if all([j in quantum_indices, b in quantum_indices]):
+                jq = target_qubits[qubit_index(j, quantum_indices)]
+                bq = target_qubits[qubit_index(b, quantum_indices)]
+
+                append_ctrl_init0_tapered_Tia(qc, jq, bq, ctrl_qubit, ctrl_state)
     
     def append_ctrl_tapered_init0_traced_full_circuit(self, qc, target_qubits, ctrl_qubit, quantum_indices,  ctrl_state=1):
         """
@@ -736,9 +793,12 @@ class CSF:
         self.append_ctrl_tapered_init0_traced_csf_circuit(qc, target_qubits=target_qubits, quantum_indices=quantum_indices, ctrl_qubit=ctrl_qubit, ctrl_state=ctrl_state, add_double_occ=True)
 
         for exc in self.excitations:
-            i, a = self.get_indices()
-            iq, aq = qubit_index(i, quantum_indices), qubit_index(a, quantum_indices) #position in the list of quantum qubits
-            append_tapered_exc_rot(qc, target_qubits[iq], target_qubits[aq], self.get_theta())
+            i, a = exc.get_indices()
+            assert all([i in quantum_indices, a in quantum_indices]) or all([i not in quantum_indices, a not in quantum_indices]), "Pair excitation cut by qubit partition."
+
+            if all([i in quantum_indices, a in quantum_indices]):
+                iq, aq = qubit_index(i, quantum_indices), qubit_index(a, quantum_indices) #position in the list of quantum qubits
+                append_tapered_exc_rot(qc, target_qubits[iq], target_qubits[aq], exc.get_theta())
 
     def get_parity_string(self):
 
