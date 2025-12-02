@@ -9,6 +9,7 @@ from qiskit_aer import AerSimulator
 from qiskit import transpile
 from scipy.sparse.linalg import norm
 from scipy.sparse import csr_matrix
+from copy import deepcopy
 
 def count_cx_gates(circuit: QuantumCircuit):
     return sum(1 for instr, qargs, cargs in circuit.data if instr.name == 'cx')
@@ -22,10 +23,12 @@ def show_state(qc: QuantumCircuit, tol=1e-5, reverse=True, silent=True):
 
 
     """
+    circuit = deepcopy(qc)
+    circuit.remove_final_measurements()
 
     if reverse:
-        qc = qc.reverse_bits()
-    state = Statevector.from_instruction(qc)
+        circuit = circuit.reverse_bits()
+    state = Statevector.from_instruction(circuit)
     state_dict = {}
 
     for i, amplitude in enumerate(state.data):
@@ -143,20 +146,38 @@ def estimate_diag_from_measurements(Z_op: QubitOperator, measurements: dict) -> 
     
     return expectation
 
-def simulate_qiskit_circuit(qc: QuantumCircuit, shots: int, noise=False, reverse=True) -> dict:
+def measure_all_existing(qc):
+    """Measure all qubits into existing clbits in order."""
+    if qc.num_clbits == 0:
+        qc.measure_all()
+        return qc
+    else:
+        if qc.num_clbits < qc.num_qubits:
+            raise ValueError("Not enough classical bits to store all measurements.")
+        for q in range(qc.num_qubits):
+            qc.measure(q, q)
+        return qc
+
+def simulate_qiskit_circuit(qc: QuantumCircuit, shots: int, noise_model=None, reverse=True, add_measurements=False) -> dict:
     """
-    TODO add noise
+
+    qc: QuantumCircuit
+    
+    add_measurements: add measurements to existing or new clbits. Raises error if incorrect number of clbits provided.
     
     """
-    simulator = AerSimulator()
-    
-    for i in range(qc.num_qubits):
-        qc.measure(i, i)
+    if noise_model is None:
+        simulator = AerSimulator()
+    else:
+        simulator = AerSimulator(noise_model=noise_model)
+
+    if add_measurements:
+        qc = measure_all_existing(qc)
 
     # Transpile for simulator
     compiled_circuit = transpile(qc, simulator)
     result = simulator.run(compiled_circuit, shots=shots).result()
-
+    
     counts = result.get_counts()
     
     if reverse:

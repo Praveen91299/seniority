@@ -217,7 +217,6 @@ def get_shot_allocation(sig_frag_mat: dict, c, N):
     N: total shots
 
     dict[tup: list[float] ] returns dictionary of measurement shots for some matrix elements
-    TODO - fix uv and vu resulting in an extra factor of 2/4
 
     """
 

@@ -2,6 +2,7 @@ import numpy as np
 import scipy.sparse
 from seniority.src.measurement_new.utils_fc import decimal_to_binary_string
 from math import log
+from openfermion import get_sparse_operator
 
 #
 #    functions for obtaining statevectors from raw data
@@ -183,4 +184,30 @@ def create_composite_state_prepended(v, w, N):
 
     return scipy.sparse.csr_matrix((composite_coefficients, non_zero_composite_entries), shape=(1, 2 ** (N + 1)))
 
+def variance_of_operator(Op, State):
+    """
+    computes the variance of a Hermitian operator <psi|H^2|psi> - <psi|H|psi>^2
+    """
+    first  = (State @ Op) @ (Op @ State.T)
+    second = (State @ Op @ State.T) ** 2
+    return first - second
 
+def variance_of_general_operator(Op, State):
+    """
+    computes the variance of a general non-Hermitian operator<psi|H^t H|psi> - <psi|H^t|psi><psi|H|psi>
+
+    note that qubit Hamiltonians with complex coefficients are not Hermitian. But a QWC or FC Hamiltonian can be measured independent of
+    what the coefficients are
+    """
+    first  = (State @ Op.conjugate().transpose()) @ (Op @ State.T)
+    second = (State @ Op @ State.T)
+    third  = (State @ Op.conjugate().transpose() @ State.T) 
+    return first - (second * third)
+
+def frag_SD_of_decomp(decomp, State, N, general=False):
+    if not general:
+        var_list = [variance_of_operator(get_sparse_operator(Op, N), State) for Op in decomp]
+    else:
+        var_list = [variance_of_general_operator(get_sparse_operator(Op, N), State) for Op in decomp]
+    var_list = np.array([x.toarray()[0,0] for x in var_list])
+    return var_list**(1/2)

@@ -172,19 +172,19 @@ def parallel_swap(CSF0: CSF, CSF1: CSF, control_qubit_pos: int =  0):
     
     return qc
 
-def get_parallelswap_subcircuit(CSF0: CSF, CSF1: CSF, quantum_indices: list=None, control_qubit_pos: int=0):
+def get_parallelswap_subcircuit(CSF0: CSF, CSF1: CSF, quantum_qubits: list=None, control_qubit_pos: int=0):
     """
-    quantum_indices : list - qubits corresponding to orbitals that are quantum
+    quantum_qubits : list - qubits corresponding to orbitals that are quantum
     """
     #build full circuit
     assert CSF0.n_orb == CSF1.n_orb, "Incompatible CSFs!"
-    if quantum_indices is None:
-        quantum_indices = list(range(CSF0.n_orb))
+    if quantum_qubits is None:
+        quantum_qubits = list(range(CSF0.n_orb))
     
-    n_q = len(quantum_indices)
+    n_q = len(quantum_qubits)
     assert n_q <= CSF0.n_orb
 
-    qc = QuantumCircuit(2*n_q + 1)
+    qc = QuantumCircuit(2*n_q + 1, 2*n_q + 1)
     qubits = deepcopy(qc.qubits)
 
     control_qubit = qubits.pop(control_qubit_pos)
@@ -192,8 +192,8 @@ def get_parallelswap_subcircuit(CSF0: CSF, CSF1: CSF, quantum_indices: list=None
     register2 = qubits[n_q:]
     qc.h(control_qubit)
 
-    CSF0.append_ctrl_tapered_init0_traced_full_circuit(qc, register1, control_qubit, quantum_indices, 0)
-    CSF1.append_ctrl_tapered_init0_traced_full_circuit(qc, register2, control_qubit, quantum_indices, 1)
+    CSF0.append_ctrl_tapered_init0_traced_full_circuit(qc, register1, control_qubit, quantum_qubits, 0)
+    CSF1.append_ctrl_tapered_init0_traced_full_circuit(qc, register2, control_qubit, quantum_qubits, 1)
 
     for q0, q1 in zip(register1, register2):
         qc.cswap(control_qubit, q0, q1)
