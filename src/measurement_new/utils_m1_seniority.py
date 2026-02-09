@@ -1,7 +1,7 @@
 from openfermion import (
     QubitOperator
 )
-from seniority.src.measurement_new.utils_basic import (
+from .utils_basic import (
     clifford,
     copy_hamiltonian,
     apply_unitary_product,

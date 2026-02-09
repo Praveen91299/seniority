@@ -5,7 +5,7 @@ from openfermion import (
     get_sparse_operator
 )
 import networkx as nx
-from seniority.src.measurement_new.utils_csf_categorize import categorize_csf_state
+from .utils_csf_categorize import categorize_csf_state
 
 #
 #    Functions to convert factorized format ("factorization_dict") to length 2^N vector format for quantum states

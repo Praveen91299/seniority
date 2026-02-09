@@ -1,5 +1,6 @@
 import numpy as np
 from qiskit import QuantumCircuit
+from seniority.src.circuits.circuits_csf import CSF
 
 #utils
 
@@ -46,7 +47,11 @@ class ParityMitigator:
         for target in target_qubits:
             qc.cx(target, parity_qubit)
     
-    def mitigate(self, result_dict: dict, parity_qubit, silent=False):
+    def mitigate(self, result_dict: dict, parity_qubit, silent=False, remove_parity_qubit=False):
+        def remove_bit(bit_str, idx):
+            char_list = list(bit_str)
+            char_list.pop(idx)
+            return "".join(char_list)
 
         if not silent: print('\nMitigation: Symmetry verification.')
         
@@ -58,7 +63,10 @@ class ParityMitigator:
             total_shots += v
 
             if int(bit_str[parity_qubit]) == self.parity:
-                filtered_dict[bit_str] = v
+                if remove_parity_qubit:
+                    filtered_dict[remove_bit(bit_str, parity_qubit)] = v
+                else:
+                    filtered_dict[bit_str] = v
 
                 filtered_shots += v
 
@@ -111,6 +119,68 @@ class ExtParityMitigator(ParityMitigator):
         if not silent: print(f'SV: {filtered_shots} retained out of {total_shots} shots')
 
         return filtered_dict, filtered_shots/total_shots
+
+
+def determine_tapered_parity(csf: CSF, quantum_qubits):
+
+    so_overlap = []
+
+    for i in csf.orbitals:
+        if i in quantum_qubits:
+            so_overlap.append(i)
+    
+    n = len(so_overlap)//2
+    do =  csf.get_doubly_occ_orbitals()
+    for i in quantum_qubits:
+        if do[i] == 1:
+            n+=1
+
+    return n % 2
+
+def append_tapered_parity_circuit_offdiag(qc: QuantumCircuit, csf0: CSF, csf1: CSF, control_qubit, state_register, parity_qubit, quantum_qubits):
+    """
+    Appends CNOT network to check parity of bitstrings, such that correct state results in parity qubit in 0
+    
+    """
+
+    assert qc.num_qubits >= len(state_register) + 2, "Insufficient number of qubits in circuit"
+    assert 2*len(quantum_qubits) == len(state_register), "Incompatible quantum index set {} and state register".format(quantum_qubits)
+
+    #get parities
+    p0 = determine_tapered_parity(csf0, quantum_qubits=quantum_qubits)
+    p1 = determine_tapered_parity(csf1, quantum_qubits=quantum_qubits)
+
+    #if diff, add CNOT to control qubit
+    for qubit in state_register:
+        qc.cx(qubit, parity_qubit)
+
+    #makes parity to be same
+    if p0 != p1:
+        qc.cx(control_qubit, parity_qubit)
+
+    #makes target parity qubit to 0
+    if p0 == 1:
+        qc.x(parity_qubit)
+
+def append_tapered_parity_circuit_diag(qc: QuantumCircuit, csf, state_register, parity_qubit, quantum_qubits):
+    """
+    Appends CNOT network to check parity of bitstrings, such that correct state results in parity qubit in 0
+    
+    """
+
+    assert qc.num_qubits >= len(state_register) + 1, "Insufficient number of qubits in circuit"
+    assert len(quantum_qubits) == len(state_register), "Incompatible quantum index set {} and state register".format(quantum_qubits)
+
+    #get parities
+    p = determine_tapered_parity(csf, quantum_qubits=quantum_qubits)
+
+    #if diff, add CNOT to control qubit
+    for qubit in state_register:
+        qc.cx(qubit, parity_qubit)
+    
+    #makes target parity qubit to 0
+    if p == 1:
+        qc.x(parity_qubit)
 
 #ZNE
 class NoiseAmplifier:

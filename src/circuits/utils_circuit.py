@@ -3,13 +3,37 @@ from qiskit.quantum_info import Statevector
 from openfermion.ops import QubitOperator
 from qiskit.quantum_info import SparsePauliOp, Operator
 import numpy as np
-from seniority.src.measurement_new.utils_m4_partitioning import sorted_insertion_decomposition, convert_QubitOperator_to_BinaryHamiltonian
+from ..measurement_new.utils_m4_partitioning import sorted_insertion_decomposition, convert_QubitOperator_to_BinaryHamiltonian
 import tequila as tq
 from qiskit_aer import AerSimulator
 from qiskit import transpile
 from scipy.sparse.linalg import norm
 from scipy.sparse import csr_matrix
 from copy import deepcopy
+
+def untaper_circuit(circuit: QuantumCircuit, seniorities: list[int]):
+    """
+    Returns circuit for untapered state.
+
+    seniorities: list[int] - orbital seniorities 0, 1
+    
+    """
+    assert len(seniorities) == circuit.num_qubits
+
+    qc = QuantumCircuit(2*circuit.num_qubits)
+
+    qubits = qc.qubits
+    register_1 = qubits[::2]
+    register_2 = qubits[1::2]
+
+    for i, q in enumerate(register_2):
+        if seniorities[i] == 1:
+            qc.x(q)
+    
+    qc = qc.compose(circuit, register_1)
+    _ = [qc.cx(r1, r2) for r1, r2 in zip(register_1, register_2)]
+
+    return qc
 
 def count_cx_gates(circuit: QuantumCircuit):
     return sum(1 for instr, qargs, cargs in circuit.data if instr.name == 'cx')

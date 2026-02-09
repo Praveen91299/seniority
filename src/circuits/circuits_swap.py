@@ -1,6 +1,6 @@
 import numpy as np
-from seniority.src.circuits.circuits_csf import CSF, get_tapered_hf_circuit
-from seniority.src.circuits.circuits_pair_excitation import PairedExcitationRotation
+from .circuits_csf import CSF, get_tapered_hf_circuit
+from .circuits_pair_excitation import PairedExcitationRotation
 from qiskit import QuantumCircuit
 from copy import deepcopy
 

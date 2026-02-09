@@ -10,13 +10,13 @@
 import numpy as np
 from openfermion import QubitOperator as Q
 from numpy.random import uniform
-from seniority.src.measurement_new.utils_basic import (
+from .utils_basic import (
     random_pauli_term,
     is_commuting, 
     apply_unitary_product, 
     clifford
 )
-from seniority.src.measurement_new.utils_la import (
+from .utils_la import (
     obtain_basis_z2, 
     obtain_expansion_coefficients_over_specified_basis_z2
 )

@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.sparse
-from seniority.src.measurement_new.utils_fc import decimal_to_binary_string
+from .utils_fc import decimal_to_binary_string
 from math import log
 from openfermion import get_sparse_operator
 
@@ -205,6 +205,9 @@ def variance_of_general_operator(Op, State):
     return first - (second * third)
 
 def frag_SD_of_decomp(decomp, State, N, general=False):
+    """
+    Standard deviations of fragmentation decomp
+    """
     if not general:
         var_list = [variance_of_operator(get_sparse_operator(Op, N), State) for Op in decomp]
     else:

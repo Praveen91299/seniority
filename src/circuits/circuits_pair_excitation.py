@@ -4,7 +4,7 @@ from qiskit.circuit.library import PauliEvolutionGate
 from qiskit.quantum_info import Operator
 import numpy as np
 from openfermion import QubitOperator, FermionOperator, jordan_wigner, get_sparse_operator, taper_off_qubits
-from seniority.src.circuits.utils_circuit import qubit_op_to_sparse_pauli_op, show_operator_matrix, check_equivalent_operators
+from .utils_circuit import qubit_op_to_sparse_pauli_op, show_operator_matrix, check_equivalent_operators
 import scipy.sparse as sp
 
 Tia = lambda i, a: FermionOperator('{}^ {}^ {} {}'.format(2*a, 2*a + 1, 2*i + 1, 2*i), 1.0) - FermionOperator('{}^ {}^ {} {}'.format(2*i, 2*i + 1, 2*a + 1, 2*a), 1.0)

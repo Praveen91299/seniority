@@ -5,7 +5,7 @@ from openfermion import (
     QubitOperator as Q,
 )
 
-from seniority.src.measurement_new.utils_basic import (
+from .utils_basic import (
     is_commuting,
     is_qubit_wise_commuting
 )

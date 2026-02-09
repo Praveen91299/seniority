@@ -1,11 +1,12 @@
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
-from seniority.src.circuits.circuits_pair_excitation import PairedExcitationRotation, SymmetricPairedExcitationRotation
-from seniority.src.circuits.utils_circuit import show_state
+from .circuits_pair_excitation import PairedExcitationRotation, SymmetricPairedExcitationRotation
+from .utils_circuit import show_state
 from scipy import sparse as sp
 from openfermion import s_squared_operator, get_sparse_operator
 import pickle
+from typing import Dict
 
 
 def get_hf_circuit(n_orb, ne):
@@ -342,7 +343,6 @@ def determine_t_vec(csf_state, orbitals):
     arr = get_state_from_csf_data(csf_state=csf_state, orbitals=orbitals)
     return get_t_vec(arr, len(orbitals))
 
-from typing import Dict
 def get_tapered_state_from_UCSF(UCSF):
     """
     Returns state as dictionary of {bit_string: coeff}
@@ -557,8 +557,8 @@ def get_Uext_csfs_from_dump(input_file, verify_states=False, use_opt_amplitudes=
     
     return csfs
 
-from seniority.src.circuits.circuits_pair_excitation import append_tapered_exc_rot
-from seniority.src.circuits.utils_circuit import qubit_index
+from .circuits_pair_excitation import append_tapered_exc_rot
+from .utils_circuit import qubit_index
 
 class CSF:
     """
