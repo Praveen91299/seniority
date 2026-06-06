@@ -178,21 +178,19 @@ for i in range(Nstates):
         HQ              -= HQ.constant
 
         HQ.compress()
-        decomp = sorted_insertion_decomposition(HQ, 'fc')
-        var_metric       = variance_of_decomp(decomp, ketQ, NQ, general=True)
-        sig_matrix[i,i] = np.sqrt(var_metric)
 
         ### build circuits!
         decomp, meas_circuits, z_ops = get_decomp_circuits_estimators(HQ, NQ, methodtag='fc')
         csf_circ = CSFs[i].get_tapered_full_circuit(quantum_qubits)
 
-        assert verify_circuit_state(csf_circ, ketQ)
-        csf_circ_t = transpile(csf_circ, basis_gates=['u3', 'cx'], optimization_level=3)
+        #assert verify_circuit_state(csf_circ, ketQ)
+        #csf_circ_t = transpile(csf_circ, basis_gates=['u3', 'cx'], optimization_level=3)
 
-        csf_circ_t_frags = [QuantumCircuit.compose(csf_circ_t, c) for c in meas_circuits]
+        csf_circ_frags = [QuantumCircuit.compose(csf_circ, c) for c in meas_circuits]
         
-        circuits[uv] = csf_circ_t_frags #make estimators for jobs?
+        circuits[uv] = csf_circ_frags #make estimators for jobs?
         sig_frag_mat[uv] = frag_SD_of_decomp(decomp, ketQ, NQ, general=True)
+        sig_matrix[i, i] = np.sum(sig_frag_mat[uv])
         frag_zops[uv] = z_ops
 
 for i in range(Nstates):
@@ -237,21 +235,19 @@ for i in range(Nstates):
 
                 comp             = create_composite_state(braQ, ketQ, NQ)
                 HQ_aug           = XorY_augment(HQ, NQ)
-                decomp           = sorted_insertion_decomposition(HQ_aug, 'fc')
-                var_metric       = variance_of_decomp(decomp, comp, NQ + 1, general=True)
-                sig_matrix[i,j] = np.sqrt(var_metric)
-                sig_matrix[j,i] = np.sqrt(var_metric)
 
                 ### build circuits!
                 decomp, meas_circuits, z_ops = get_decomp_circuits_estimators(HQ_aug, NQ + 1, methodtag='fc')
                 csf_circ = get_parallelswap_subcircuit(CSFs[i], CSFs[j], quantum_qubits=quantum_qubits, control_qubit_pos=NQ)
-                assert verify_circuit_state(csf_circ, comp, truncate_bitstrings=list(range(NQ+1)))
-                csf_circ_t = transpile(csf_circ, basis_gates=['u3', 'cx'], optimization_level=3)
+                #assert verify_circuit_state(csf_circ, comp, truncate_bitstrings=list(range(NQ+1)))
+                #csf_circ_t = transpile(csf_circ, basis_gates=['u3', 'cx'], optimization_level=3)
                 
-                csf_circ_t_frags = [QuantumCircuit.compose(csf_circ_t, c) for c in meas_circuits]
+                csf_circ_frags = [QuantumCircuit.compose(csf_circ, c) for c in meas_circuits]
                 
-                circuits[uv] = csf_circ_t_frags #make estimators for jobs?
+                circuits[uv] = csf_circ_frags #make estimators for jobs?
                 sig_frag_mat[uv] = frag_SD_of_decomp(decomp, comp, NQ + 1, general=True)
+                sig_matrix[i, j] = np.sum(sig_frag_mat[uv])
+                sig_matrix[j, i] = np.sum(sig_frag_mat[uv])
                 frag_zops[uv] = z_ops
                 
 
@@ -280,11 +276,6 @@ shot_alloc = get_shot_allocation(sig_frag_mat, c, N)
 #run stuff
 
 print("Allocated {} shots, beginning quantum expts...".format(N))
-#reps = 10
-#quant_ests = []
-
-#noise_model = None#get_depol_noise(1e-5, 1e-4)#get_willow_noise_model('decoherence')
-#H_sampled = [np.zeros([Nstates, Nstates], dtype=np.complex128) for _ in range(reps)]
 
 # compile circuits and observables
 from qiskit_ibm_runtime import QiskitRuntimeService
@@ -345,97 +336,47 @@ for uv in circuits.keys():
 
     PUBs[uv] = [(circuit, observable, None, precision) for circuit, observable, precision in zip(transpiled_circuits, observable_transpiled, precisions)]
 
-#diagonal
+
 estimator_matrix = np.zeros([Nstates, Nstates], dtype=np.complex128)
 std_dev_dict = {} # uv : dev
 for i in range(Nstates):
+    #diagonal
     j = i
     uv = (i, j)
     if uv in quantum_indices:
         #run expt
-        #meas alloc and noise TODO
+        print(len(PUBs[uv]))
         estimates, sds, results = run_pub(PUBs[uv], estimator)
         estimator_matrix[i, j] = np.sum(estimates) + H_classical[i, j]
         std_dev_dict[uv] = np.sqrt(np.sum([s**2 for s in sds])) #sqrt of variance
         print("Estimator estimate: {} +- {}".format(estimator_matrix[i, j], std_dev_dict[uv]))
-        #print([(s, p[3], sig/np.sqrt(shots)) for s, p, sig, shots in zip(sds, PUBs[uv], sig_frag_mat[uv], shot_alloc[uv])])
-
-        # counts = [simulate_qiskit_circuit(circ, n, noise_model=noise_model, add_measurements=True) for circ, n in zip(circuits[uv], shot_alloc[uv])]
-        # #resampling
-        # counts_resampled = [resample_counts(frag_counts, int(shot_alloc[uv][i]), reps) for i, frag_counts in enumerate(counts)]
-        
-        # estimates = [[estimate_diag_from_measurements(z, count_dict) for count_dict in counts] for z, counts in zip(frag_zops[uv], counts_resampled)]
-        # mat_est_list = np.sum(estimates, axis=0) + H_classical[i, i]
-        # print(mat_est_list)
-        # for n in range(reps):
-        #     H_sampled[n][i, i] = mat_est_list[n]
-        # print("\n ({}, {}), {}".format(i, i, CSFs[i].t_vec))
-        # print("Estimate: {}\nTrue: {}".format(np.mean(mat_est_list), Hsub[i, i]))
-
     else:
         estimator_matrix[i, i] = Hsub[i, i]
-        
-        # for r in range(reps):
-        #     H_sampled[r][i, i] = Hsub[i, i]
+    
+    #off-diagonal
+    for j in range(i):
+        uv = (i, j)
+        print(uv)
+        if uv in quantum_indices:
+            #run expt
+            print(len(PUBs[uv]))
+            estimates, sds, results = run_pub(PUBs[uv], estimator)
+            estimator_matrix[i, j] = np.sum(estimates) + H_classical[i, j]
+            estimator_matrix[j, i] = np.sum(estimates) + H_classical[j, i]
+            std_dev_dict[uv] = np.sqrt(np.sum([s**2 for s in sds])) #sqrt of variance
+            print("Estimator estimate: {} +- {}".format(estimator_matrix[i, j], std_dev_dict[uv]))
 
-#off-diagonal
-for i in range(Nstates):
-    for j in range(Nstates):
-        if i > j: 
-            uv = (i, j)
-            print(uv)
-            if uv in quantum_indices:
-                #run expt
-                print(len(PUBs[uv]))
-                estimates, sds, results = run_pub(PUBs[uv], estimator)
-                estimator_matrix[i, j] = np.sum(estimates) + H_classical[i, j]
-                estimator_matrix[j, i] = np.sum(estimates) + H_classical[j, i]
-                std_dev_dict[uv] = np.sqrt(np.sum([s**2 for s in sds])) #sqrt of variance
-                print("Estimator estimate: {} +- {}".format(estimator_matrix[i, j], std_dev_dict[uv]))
-
-                #print("\nRunning ({}, {}) off diagonal expt".format(i, j))
-                # counts = [simulate_qiskit_circuit(circ, n, noise_model=noise_model, add_measurements=True) for circ, n in zip(circuits[uv], shot_alloc[uv])] 
-                
-                # print("Resampling now")
-                # #resampling
-                # counts_resampled = [resample_counts(frag_counts, int(shot_alloc[uv][i]), reps) for i, frag_counts in enumerate(counts)]
-                
-                # estimates = [[estimate_diag_from_measurements(z, count_dict) for count_dict in counts] for z, counts in zip(frag_zops[uv], counts_resampled)]
-                # mat_est_list = np.sum(estimates, axis=0)
-                # print(mat_est_list)
-                # for n in range(reps):
-                #     H_sampled[n][i, j] = mat_est_list[n]
-                #     H_sampled[n][j, i] = mat_est_list[n]
-
-                # print("\n ({}, {}) {}, {}".format(i, j, CSFs[i].t_vec, CSFs[j].t_vec))
-                # print("Estimate: {}\nTrue: {}".format(np.mean(mat_est_list), Hsub[i, j]))
-
-            else:
-                estimator_matrix[i, j] = Hsub[i, j]
-                estimator_matrix[j, i] = Hsub[j, i]
-
-                # for r in range(reps):
-                #     H_sampled[r][i, j] = Hsub[i, j]
-                #     H_sampled[r][j, i] = Hsub[j, i]
+        else:
+            estimator_matrix[i, j] = Hsub[i, j]
+            estimator_matrix[j, i] = Hsub[j, i]
 
 vals, vecs = np.linalg.eigh(estimator_matrix)
 c          = vecs[:,0]
 std = calculate_matrix_std(c, std_dev_dict)
-print("GS from estimator: {} +- {} ".format(vals[0], std))
-
-# for n in range(reps):
-#     vals, vecs = np.linalg.eigh(H_sampled[n])
-#     quant_Egs = vals[0]
-#     #print("Energy estimate: {}".format(quant_Egs))
-
-#     quant_ests.append(quant_Egs)
-
-# print("Completed {} sampling repetitions...".format(reps))
-mean = vals[0] #np.mean(quant_ests)
+mean = vals[0]
 bias = mean - Egs
-#std = np.var(quant_ests)**(1/2)
-rmse = bias **2 + std ** 2 #np.sqrt(np.mean((np.array(quant_ests) - Egs)**2))
-print("""mean energy estimate: {}\n
+rmse = np.sqrt(bias **2 + std ** 2)
+print("""mean energy estimate from samples: {}\n
         std: {}      
         bias: {}
         RMSE: {}
