@@ -182,7 +182,7 @@ def measure_all_existing(qc):
             qc.measure(q, q)
         return qc
 
-def simulate_qiskit_circuit(qc: QuantumCircuit, shots: int, noise_model=None, reverse=True, add_measurements=False) -> dict:
+def simulate_qiskit_circuit(qc: QuantumCircuit, shots: int, noise_model=None, backend=None, reverse=True, add_measurements=False) -> dict:
     """
 
     qc: QuantumCircuit
@@ -190,16 +190,22 @@ def simulate_qiskit_circuit(qc: QuantumCircuit, shots: int, noise_model=None, re
     add_measurements: add measurements to existing or new clbits. Raises error if incorrect number of clbits provided.
     
     """
-    if noise_model is None:
-        simulator = AerSimulator()
-    else:
-        simulator = AerSimulator(noise_model=noise_model)
+    shots = max([shots, 1])
 
     if add_measurements:
+        qc.remove_final_measurements()
         qc = measure_all_existing(qc)
+    
+    assert ((noise_model is not None) and (backend is not None)) == False, "simulate_qiskit_circuit: Both noise model and backend cannot be specified!"
+    if (noise_model is None) and (backend is None):
+        simulator = AerSimulator()
+    elif noise_model is not None:
+        simulator = AerSimulator(noise_model=noise_model)
+    elif backend is not None:
+        simulator = AerSimulator.from_backend(backend)
 
     # Transpile for simulator
-    compiled_circuit = transpile(qc, simulator)
+    compiled_circuit = transpile(qc, simulator, optimization_level=3)
     result = simulator.run(compiled_circuit, shots=shots).result()
     
     counts = result.get_counts()

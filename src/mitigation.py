@@ -1,6 +1,9 @@
 import numpy as np
 from qiskit import QuantumCircuit
-from seniority.src.circuits.circuits_csf import CSF
+from .circuits.circuits_csf import CSF
+from .circuits.utils_circuit import show_state, get_sparse_state
+from openfermion import QubitOperator, count_qubits
+import networkx as nx
 
 #utils
 
@@ -72,6 +75,8 @@ class ParityMitigator:
 
         if not silent: print(f'SV: {filtered_shots} retained out of {total_shots} shots')
 
+        if total_shots == 0:
+            return filtered_dict, 1
         return filtered_dict, filtered_shots/total_shots
     
     def estimate_overhead(self):
@@ -122,6 +127,9 @@ class ExtParityMitigator(ParityMitigator):
 
 
 def determine_tapered_parity(csf: CSF, quantum_qubits):
+    """
+    Determines parity of CSF over quantum_qubits
+    """
 
     so_overlap = []
 
@@ -136,6 +144,33 @@ def determine_tapered_parity(csf: CSF, quantum_qubits):
             n+=1
 
     return n % 2
+
+def append_tapered_sep_parity_circuit_offdiag(qc: QuantumCircuit, csf0: CSF, csf1: CSF, control_qubit, state_register, parity_qubit0, parity_qubit1, quantum_qubits):
+    """
+    Appends CNOT network to check parity, individually for both csfs
+    
+    """
+    assert qc.num_qubits >= len(state_register) + 3, "Insufficient number of qubits in circuit"
+    assert 2*len(quantum_qubits) == len(state_register), "Incompatible quantum index set {} and state register".format(quantum_qubits)
+    
+    p0 = determine_tapered_parity(csf0, quantum_qubits=quantum_qubits)
+    p1 = determine_tapered_parity(csf1, quantum_qubits=quantum_qubits)
+
+    #controlled
+    qc.x(control_qubit)
+    for qubit in state_register:
+        qc.ccx(qubit, control_qubit, parity_qubit0)
+    qc.x(control_qubit)
+
+    for qubit in state_register:
+        qc.ccx(qubit, control_qubit, parity_qubit1)
+
+    #makes target parity qubits to 0 (chosen convention)
+    if p0 == 1:
+        qc.x(parity_qubit0)
+    
+    if p1 == 1:
+        qc.x(parity_qubit1)
 
 def append_tapered_parity_circuit_offdiag(qc: QuantumCircuit, csf0: CSF, csf1: CSF, control_qubit, state_register, parity_qubit, quantum_qubits):
     """
@@ -181,6 +216,221 @@ def append_tapered_parity_circuit_diag(qc: QuantumCircuit, csf, state_register, 
     #makes target parity qubit to 0
     if p == 1:
         qc.x(parity_qubit)
+
+#constructing symmetry operators and projectors
+def construct_z2_projector(sym_list: list[QubitOperator], eig_vals: list[int] = None):
+    """
+    Construct projectors to z2 symmetry subspace defined by sym_list, eig_vals
+
+    """
+    if eig_vals is None:
+        eig_vals = np.array([1]*len(sym_list))
+
+    assert len(sym_list) == len(eig_vals), "Incorrect number of symmetries and eigenvalues specified!"
+    if len(sym_list) == 0:
+        return QubitOperator('', coefficient=1.0)
+
+    sym, e = sym_list[0], eig_vals[0]
+    projector = construct_z2_projector(sym_list=sym_list[1:], eig_vals=eig_vals[1:])
+    
+    return projector * (0.5 + 0.5 * e * sym)
+
+def get_extended_symmetry(sym: QubitOperator, eig_val, ctrl_state, ctrl_qubit=0) -> QubitOperator:
+    """
+    Symmetry induced by sym on the extended state, of eigenvalue eig_val 
+    ctrl_state \in \{0, 1\} determines which of the defining states the sym is a symmetry of
+
+    """
+    def insert_qubit_op_at_pos(op, op_insert, pos:int, inserted_nqubits=None):
+        """
+        Inserts op_insert at pos in op (as in tensor product)
+        
+        """
+        
+
+        if inserted_nqubits is None:
+            inserted_nqubits = count_qubits(op_insert)
+        assert inserted_nqubits >= count_qubits(op_insert), "Invalid number of qubits to be inserted!"
+
+        shift_first_entry = lambda l, k: [(l0+k, l1) for l0, l1 in l]
+
+        op_new = QubitOperator()
+        for term, coeff in op.terms.items():
+            terms_before = [t for t in term if t[0] < pos]
+            terms_after = [t for t in term if t[0] >= pos]
+
+            for term_insert, coeff_insert in op_insert.terms.items():
+                op_new += QubitOperator(terms_before 
+                                        + shift_first_entry(term_insert, pos) 
+                                        + shift_first_entry(terms_after, pos+inserted_nqubits), 
+                                        coeff*coeff_insert)
+                
+        return op_new
+
+    p0i= lambda i : 0.5*(1 + QubitOperator('Z{}'.format(i)))
+    p1i= lambda i : 0.5*(1 - QubitOperator('Z{}'.format(i)))
+
+    if ctrl_state == 1:
+        ext_op = insert_qubit_op_at_pos(sym, p1i(0), ctrl_qubit, 1)
+        ext_op += eig_val*p0i(ctrl_qubit)
+    else:
+        ext_op = insert_qubit_op_at_pos(sym, p0i(0), ctrl_qubit, 1)
+        ext_op += eig_val*p1i(ctrl_qubit)
+    return ext_op
+
+def find_csf_connected_qubits(csf: CSF, quantum_qubits: list):
+    """
+    Finds connected subsets of qubits in the quantum_qubits of csf
+
+    """
+
+    #build graph
+    G = nx.Graph()
+    G.add_nodes_from(quantum_qubits)
+
+    for pairexc in csf.get_excitations():
+        edges = []
+        for exc in pairexc.get_excitations():
+            #raise assertion error when exc cuts across quantum_qubits
+            assert (exc[0] in quantum_qubits and exc[1] in quantum_qubits) or (exc[0] not in quantum_qubits and exc[1] not in quantum_qubits), "Pair excitation cuts to outside quantum_qubits!"
+            edges.append(exc)
+        G.add_edges_from(edges)
+    
+    components = list(nx.connected_components(G))
+
+    return components
+
+def list_csf_z2_symmetries(csf: CSF, quantum_qubits, verify=False):
+    """
+    Returns symmetries with corresponding eigenvalues for csf, quantum qubits is a subset of unoccupied/doubly occupied orbitals
+    Finds quantum qubits connected by pair excitations
+    
+    Returned symmetries over reduced number of qubits!
+
+    """
+    def get_parity_op(qubits):
+        return QubitOperator(''.join(['Z{} '.format(i) for i in qubits]), 1.0)
+    
+    def get_X_op(qubits):
+        return QubitOperator(''.join(['X{} '.format(i) for i in qubits]), 1.0)
+    
+    list_sym = []
+    list_eig = []
+    #ensure SOMOs not in CSF (currently not handled!) TODO
+    #assert all([q not in csf.orbitals for q in quantum_qubits]), "Quantum qubits consists of SOMO!"
+
+    #SOMO
+    sen1_quantum_qubits = [q for q in quantum_qubits if q in csf.orbitals]
+    #treat case by case TODO for off-diagonal entries
+    n_sen1 = len(sen1_quantum_qubits)
+
+    if n_sen1 > 0:
+
+        if np.all(csf.t_vec == [1/2, -1/2]):
+            # [1/2, -1/2] case, bell state with syms XX (-1) ZZ (-1)
+            assert n_sen1 == 2, "Invalid SOMO quantum qubits."
+            i, a = csf.orbitals
+            qub_pos = [quantum_qubits.index(i), quantum_qubits.index(a)]
+            list_sym.extend([get_parity_op(qub_pos), get_X_op(qub_pos)])
+            list_eig.extend([-1, -1])
+        elif np.all(csf.t_vec == [1/2, -1/2, 1/2, -1/2]):
+            #double bell state
+            assert n_sen1 == 2 or n_sen1 == 4, "Invalid SOMO quantum qubits."
+
+            i, a, j, b = csf.orbitals
+
+            assert (i in sen1_quantum_qubits and a in sen1_quantum_qubits) or (i not in sen1_quantum_qubits and a not in sen1_quantum_qubits), "CSF qubits split up."
+            
+            if i in sen1_quantum_qubits:
+                qub_pos = [quantum_qubits.index(i), quantum_qubits.index(a)]
+                list_sym.extend([get_parity_op(qub_pos), get_X_op(qub_pos)])
+                list_eig.extend([-1, -1])
+            
+            assert (j in sen1_quantum_qubits and b in sen1_quantum_qubits) or (j not in sen1_quantum_qubits and b not in sen1_quantum_qubits), "CSF qubits split up."
+            
+            if j in sen1_quantum_qubits:
+                qub_pos = [quantum_qubits.index(j), quantum_qubits.index(b)]
+                list_sym.extend([get_parity_op(qub_pos), get_X_op(qub_pos)])
+                list_eig.extend([-1, -1])
+        elif np.all(csf.t_vec == [1/2, 1/2, -1/2, -1/2]):
+            assert n_sen1 == 4, "Invalid SOMO quantum qubits."
+
+            i, j, a, b = csf.orbitals
+            qi, qj, qa, qb = quantum_qubits.index(i), quantum_qubits.index(j), quantum_qubits.index(a), quantum_qubits.index(b)
+
+            sym1 = get_X_op([qi, qj, qa, qb])
+            sym2 = QubitOperator('Z{} Z{}'.format(qi, qj), 1/3) + QubitOperator('X{} X{} Z{} Z{}'.format(qj, qa, qi, qb), 2/3) - QubitOperator('X{} X{}'.format(qj, qb), 2/3)
+            sym3 = get_parity_op([qi, qj, qa, qb])
+            sym4 = QubitOperator('X{} X{}'.format(qa, qb), 0.5) - QubitOperator('Z{} Z{}'.format(qi, qb), 0.5) - QubitOperator('Z{} Z{}'.format(qi, qa), 0.5) - QubitOperator('Z{} Z{} X{} X{}'.format(qa, qb, qa, qb), 0.5)
+            list_sym.extend([sym1, sym2, sym3, sym4])
+            list_eig.extend([1.0, 1.0, 1.0, 1.0])
+            
+        else:
+            assert False, "t_vec = {} not handled yet!".format(csf.t_vec)
+    
+    #DOMO
+    sen0_quantum_qubits = [q for q in quantum_qubits if q not in csf.orbitals]
+    
+    connected_qubits = find_csf_connected_qubits(csf, sen0_quantum_qubits) # doubly occupied and unoccupied orbitals
+    for comp in connected_qubits:
+        qub_pos = [quantum_qubits.index(c) for c in comp]
+        list_sym.append(get_parity_op(qub_pos))
+        parity = np.sum([csf.get_doubly_occ_orbitals()[i] for i in comp]) % 2
+        list_eig.append((-1)**(parity))
+    
+    if verify:
+        #check all symmetries explicitly
+        qc = csf.get_tapered_full_circuit(quantum_qubits)
+        n_qubits = len(quantum_qubits)
+
+        state = show_state(qc)
+        sparse_vec = get_sparse_state(state)
+
+        for e, sym in zip(list_eig, list_sym):
+            sym_sparse = get_sparse_operator(sym, n_qubits)
+            e_val = (sparse_vec.conjugate() @ sym_sparse @ sparse_vec.T)[0, 0]
+            print(e_val)
+            assert np.isclose(e_val, e)
+    
+    return list_sym, list_eig
+
+def construct_csf_sym_projector(csf, quantum_qubits):
+
+    list_sym, list_eig_vals = list_csf_z2_symmetries(csf, quantum_qubits)
+
+    return construct_z2_projector(list_sym, list_eig_vals)
+
+def list_ext_symmetries(csf0, csf1, quantum_qubits, ctrl_qubit_pos):
+    """
+    List/construct extended state symmetries
+
+    """
+
+    #parity over D, parity over S, any product or CSF states TODO symmetries of S
+    list_syms = []
+    list_eig_vals = []
+
+    list_syms0, list_eig_vals0 = list_csf_z2_symmetries(csf0, quantum_qubits)
+    list_syms1, list_eig_vals1 = list_csf_z2_symmetries(csf1, quantum_qubits)
+
+    #get_extended_symmetry()
+    for sym, eig in zip(list_syms0, list_eig_vals0):
+        list_syms.append(get_extended_symmetry(sym, eig, 0, ctrl_qubit_pos))
+        list_eig_vals.append(eig)
+    
+    for sym, eig in zip(list_syms1, list_eig_vals1):
+        list_syms.append(get_extended_symmetry(sym, eig, 1, ctrl_qubit_pos))
+        list_eig_vals.append(eig)
+
+    return list_syms, list_eig_vals
+
+def construct_ext_sym_projector(csf0, csf1, quantum_qubits, ctrl_qubit_pos=None):
+    if ctrl_qubit_pos is None:
+        ctrl_qubit_pos = -1 # end as default
+    
+    list_syms, list_eig_vals = list_ext_symmetries(csf0, csf1, quantum_qubits, ctrl_qubit_pos)
+
+    return construct_z2_projector(list_syms, list_eig_vals)
 
 #ZNE
 class NoiseAmplifier:
