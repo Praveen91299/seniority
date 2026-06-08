@@ -110,7 +110,6 @@ def calculate_matrix_std(c, std_dict):
     c : solution coefficient vector
     std_dict : estimate standard deviations
     """
-    Nstates = len(c)
     var = 0
     for uv in std_dict.keys():
         i, j = uv
@@ -143,11 +142,15 @@ def run_estimator(circuits: list[QuantumCircuit], observables: list[SparsePauliO
         isa_observables = observables
 
     pub = [(ansatz, isa_hamiltonian, None, get_precision_for_shots(isa_hamiltonian, shot)) for ansatz, isa_hamiltonian, shot in zip(circuits, isa_observables, shots)]
-    return run_pub(pub)
+    job, _ = run_pub(pub, estimator)
+    return retrieve_results(job)
 
 def run_pub(pub, estimator):
     job = estimator.run(pub)
+    job_id = job.job_id() if hasattr(job, "job_id") else None
+    return job, job_id
 
+def retrieve_results(job):
     results = job.result()
     estimates = [result.data.evs for result in results]
     stds = [result.data.stds for result in results]
