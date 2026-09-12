@@ -1,0 +1,18 @@
+Exact-pair-number observable-shift diagnostic
+entry: (0, 0)
+fragment: 0
+shots: 60882
+ideal pair number: 5
+noisy pair number: 4.58887684373
+ideal fragment estimate: -30.6034385637
+raw noisy estimate: -15.9038411013
+lambda: 16.5463310115
+shifted raw estimate: 60.0252341259
+recovered estimate: -22.7064209314
+raw bootstrap: {'mean': -15.90510522173308, 'std': 0.08561122030947176, 'bias': 14.698333341921508, 'rmse': 14.698582650882374}
+shifted bootstrap: {'mean': -22.707241307852502, 'std': 0.07722686763854639, 'bias': 7.896197255802086, 'rmse': 7.896574877339051}
+variance-optimal lambda: 10.6251571207
+variance-optimal bootstrap: {'mean': -20.27306840471676, 'std': 0.07313679719804095, 'bias': 10.330370158937829, 'rmse': 10.330629039140257}
+diagnostic bias-optimal lambda: 35.754730032
+full entry raw bootstrap: {'mean': -60.18828679312933, 'std': 0.08561122030947178, 'bias': 14.801437892681541, 'rmse': 14.801685465023487}
+full entry shifted bootstrap: {'mean': -66.99042287924877, 'std': 0.07722686763854636, 'bias': 7.9993018065621015, 'rmse': 7.9996745610902025}

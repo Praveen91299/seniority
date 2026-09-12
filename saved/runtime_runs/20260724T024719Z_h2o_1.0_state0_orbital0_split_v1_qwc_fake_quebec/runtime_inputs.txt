@@ -1,0 +1,30 @@
+Runtime input benchmark
+created_at_utc: 2026-07-24T02:47:24.215872+00:00
+molecule: h2o
+bond_length: 1.0
+basis_variant: state0_orbital0_split_v1
+methodtag: qwc
+backend: fake_quebec
+runtime_execution_mode: job
+disable_runtime_mitigation: True
+
+  target_estimate_accuracy: 0.0016
+  simulator_method: statevector
+  local_simulator_single_job: True
+  num_quantum_matrix_elements: 51
+  num_pub_groups: 51
+  num_pubs: 626
+  num_estimator_jobs: 1
+  max_payload_mb_per_estimator_job: 20.0
+  max_estimated_qpu_seconds_per_estimator_job: 600
+  allocated_shots_before_pruning: 201789
+  num_pruned_fragments: 0
+  num_pruned_matrix_elements: 0
+  kept_allocated_shots: 201789
+  payload_mb: 65.74552249908447
+  estimated_qpu_seconds: 72.62615
+  nominal_circuit_qubits: 127
+  active_circuit_qubits_before_truncation: 5-19
+  max_circuit_depth: 1035
+  max_two_qubit_gates: 383
+  total_two_qubit_gates: 148000

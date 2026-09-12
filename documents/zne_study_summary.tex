@@ -1,0 +1,433 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!55!black,
+  citecolor=blue!55!black,
+  urlcolor=blue!55!black
+}
+
+\title{Zero-Noise Extrapolation Study for the Split-Basis H$_2$O Matrix Entry}
+\author{}
+\date{27 July 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note summarizes the local noisy-simulator zero-noise extrapolation (ZNE)
+study performed for diagonal split-basis matrix entry $(1,1)$ of the H$_2$O
+calculation at bond length $1.0$.  It records the simulation and mitigation
+pipeline, folding factors, shot-allocation analysis, extrapolation models,
+uncertainty treatment, numerical results, and current interpretation.  The
+main empirical conclusion is that curved extrapolators substantially reduce
+the observed simulator bias for this relatively noisy/deep entry.  The final
+five-factor experiment gives the smallest observed RMSE for an
+offset-exponential model, closely followed by a quadratic model, while the
+linear estimator remains much less variable.  Evidence for curvature is
+strong but does not yet meet the conventional $p<0.05$ threshold.
+\end{abstract}
+
+\section{Question and setup}
+
+The target is the diagonal matrix element
+\[
+  H_{11}^{\mathrm{ideal}}=-74.9897034653.
+\]
+The basis is the orbital-$0$ split basis: the original state $0$ was replaced
+by states in fixed orbital sectors, and entry $(1,1)$ is the dominant split
+sector studied here.
+
+All experiments reported here were run locally.  Circuits cached by the
+sampling workflow were simulated with Qiskit Aer using the noise model and
+connectivity of \texttt{FakeQuebec}.  The simulator was configured with the
+statevector method, finite shots, and qubit truncation.  This is a noisy,
+shot-based simulation, not an ideal statevector expectation-value
+calculation.  Readout errors were corrected using independently calibrated
+local assignment matrices before the ZNE fit.
+
+The implementation is primarily in
+\begin{verbatim}
+src/mitigation.py
+scripts/run_probabilistic_zne_entry.py
+scripts/fit_zne_models.py
+\end{verbatim}
+and portable results are under
+\begin{verbatim}
+saved/runtime_runs/
+  20260724T024719Z_h2o_1.0_state0_orbital0_split_v1_qwc_fake_quebec/
+\end{verbatim}
+
+\section{Noise amplification and execution}
+
+\subsection{Probabilistic local folding}
+
+For an eligible native noisy gate $U$, a local fold replaces it by
+\[
+  U \longmapsto U U^\dagger U,
+\]
+which is ideally equivalent to $U$ but executes additional noisy gates.
+For fractional amplification $\lambda\in[1,3]$, each eligible gate is folded
+with probability
+\[
+  p_{\mathrm{fold}}=\frac{\lambda-1}{2}.
+\]
+Different partial folds need not have identical noisy expectation values.
+Therefore eight independently randomized folding patterns were used for each
+non-unit factor.  The shots assigned to a factor were divided among these
+patterns; randomization increased the number of circuits, not the total shots
+at that factor.
+
+The final factor grid was
+\[
+  \lambda\in\{1,\;1.25,\;1.5,\;1.75,\;2\}.
+\]
+Smaller fractional factors were preferred to full factors $3$ and $5$
+because this entry is already noisy and deeper folded circuits can approach
+noise saturation.
+
+\paragraph{Current implementation limitation.}
+Folding acts on the saved transpiled state-preparation circuits.  Measurement
+basis rotations subsequently introduced by the estimator are not presently
+folded.  Thus $\lambda$ is an amplification factor for the folded circuit
+portion, not a guarantee that every physical error source is multiplied
+uniformly.  Realized noisy-gate factors and fold manifests are saved and
+should be inspected when interpreting the fits.
+
+\subsection{Readout mitigation}
+
+For each measured physical qubit $q$, calibration circuits prepare
+$\lvert0\rangle$ and $\lvert1\rangle$ and estimate the assignment matrix
+\[
+ A_q =
+ \begin{pmatrix}
+ p(0|0) & p(0|1)\\
+ p(1|0) & p(1|1)
+ \end{pmatrix}.
+\]
+The measured distribution is corrected with $A_q^{-1}$.  For a multi-qubit
+Pauli product, the code assumes local assignment errors and applies the
+corresponding tensor product of single-qubit inverses.  Readout mitigation was
+applied at every noise factor before extrapolation.  It was helpful, but
+earlier tests showed that readout error was not the dominant bias source.
+
+\section{Extrapolation and statistical treatment}
+
+\subsection{Models}
+
+Three variance-weighted models were compared:
+\begin{align}
+ E_{\mathrm{lin}}(\lambda)
+   &= \beta_0+\beta_1\lambda,\\
+ E_{\mathrm{quad}}(\lambda)
+   &= \beta_0+\beta_1\lambda+\beta_2\lambda^2,\\
+ E_{\mathrm{exp}}(\lambda)
+   &= E_0+s\,\frac{1-\exp(-k\lambda)}{k}.
+\end{align}
+The last parameterization is an offset exponential written so that
+$E_{\mathrm{exp}}(0)=E_0$ and it has a stable linear limit as $k\to0$.
+In every case the fitted value at $\lambda=0$ is the ZNE estimate.
+
+If estimates $\widehat E_i$ have variances $v_i$, variance-weighted fitting
+minimizes
+\[
+  \chi^2=\sum_i\frac{
+    [\widehat E_i-E_{\mathrm{model}}(\lambda_i)]^2}{v_i}.
+\]
+For a linear extrapolated estimator
+\[
+  \widehat E(0)=\sum_i c_i\widehat E_i,
+\]
+independent factor variances propagate as
+\[
+  \operatorname{Var}[\widehat E(0)]
+  =\sum_i c_i^2v_i.
+\]
+Factor-level parametric bootstrap resampling was additionally used for all
+three fits and is particularly important for the nonlinear exponential fit.
+The final results use $10\,000$ bootstrap samples.
+
+\subsection{Shot allocation}
+
+For fixed extrapolation coefficients and single-shot standard deviations
+$\sigma_i$, minimizing variance at fixed total shots gives
+\[
+  N_i \propto |c_i|\sigma_i.
+\]
+An early equal-allocation run used $147\,317$ shots at each of
+$\lambda=\{1,1.5,2\}$.  A pilot-based allocation then assigned
+\[
+  (N_1,N_{1.5},N_2)
+  =(234\,371,\;45\,356,\;162\,224),
+\]
+while preserving the same total of $441\,951$ shots.  The variance-weighted
+linear coefficients after this reallocation became
+\[
+  (c_1,c_{1.5},c_2)
+  =(1.9889,\;0.0222,\;-1.0111).
+\]
+This illustrates a self-consistency issue: changing $N_i$ changes $v_i$,
+which changes a weighted fit and hence changes $c_i$.  Under a strictly
+linear model the variance-optimal design tends to place nearly all shots at
+the two endpoints; an interior point is nevertheless valuable for detecting
+curvature.  A production design should therefore predeclare pilot-derived
+weights and reserve a minimum diagnostic allocation at interior factors,
+rather than repeatedly adapting weights to the same production data.
+
+\section{Numerical development}
+
+\subsection{Three-factor linear ZNE}
+
+The initial readout-mitigated three-factor run at
+$\lambda=\{1,1.5,2\}$ gave
+\[
+\begin{array}{lccc}
+\toprule
+ & \text{bias} & \text{variance} & \text{RMSE}\\
+\midrule
+\lambda=1                         & 2.4949 & 0.00431 & 2.4958\\
+\text{equal-allocation linear ZNE}& 1.3022 & 0.02198 & 1.3106\\
+\text{optimized weighted ZNE}     & 1.2134 & 0.01546 & 1.2198\\
+\bottomrule
+\end{array}
+\]
+The pilot allocation and variance-weighted fit reduced the extrapolated
+variance by approximately $29.7\%$ and the RMSE by approximately $6.9\%$
+relative to the equal-allocation linear run.
+
+\subsection{Four-factor model comparison}
+
+Adding $\lambda=1.25$ and using $294\,634$ shots per factor produced:
+\[
+\begin{array}{lrrrr}
+\toprule
+\text{model} & E(0) & \text{bias} & \text{variance} & \text{RMSE}\\
+\midrule
+\text{linear}      & -73.7650 & 1.2247 & 0.00943 & 1.2285\\
+\text{quadratic}   & -74.3106 & 0.6791 & 0.22591 & 0.8289\\
+\text{exponential} & -74.4352 & 0.5545 & 0.52684 & 0.9134\\
+\bottomrule
+\end{array}
+\]
+The curved fits reduced observed simulator bias but amplified statistical
+variance.  With only four factors, the curvature evidence was not conclusive.
+
+\subsection{Final five-factor independent-seed comparison}
+
+Two independently seeded five-factor runs were inverse-variance pooled.  The
+nominal total was $883\,902$ shots per factor.  Resolved folding-pattern
+variance was included in the factor variances; therefore nominal shot count
+alone was not treated as the effective precision.  The pooled factor data
+were
+\[
+\begin{array}{crr}
+\toprule
+\lambda & \widehat E(\lambda) & \text{standard deviation}\\
+\midrule
+1.00 & -72.509300 & 0.02681\\
+1.25 & -72.133633 & 0.02773\\
+1.50 & -71.774107 & 0.03487\\
+1.75 & -71.453188 & 0.02890\\
+2.00 & -71.160255 & 0.03185\\
+\bottomrule
+\end{array}
+\]
+and the full five-point fits were
+\[
+\begin{array}{lrrrrr}
+\toprule
+\text{model} & E(0) & \text{bias} & \text{variance}
+             & \text{standard deviation} & \text{RMSE}\\
+\midrule
+\text{linear}
+  & -73.845122 & 1.144581 & 0.00307 & 0.0554 & 1.1459\\
+\text{quadratic}
+  & -74.321020 & 0.668683 & 0.07574 & 0.2752 & 0.7231\\
+\text{offset exponential}
+  & -74.405365 & 0.584339 & 0.14510 & 0.3809 & 0.6975\\
+\bottomrule
+\end{array}
+\]
+The corresponding fit-quality statistics were
+\[
+\begin{array}{lrrr}
+\toprule
+\text{model} & \chi^2/\mathrm{dof} & p\text{-value} & \mathrm{AIC}\\
+\midrule
+\text{linear}      & 3.129/3 & 0.372 & 7.129\\
+\text{quadratic}   & 0.034/2 & 0.983 & 6.034\\
+\text{exponential} & 0.051/2 & 0.975 & 6.051\\
+\bottomrule
+\end{array}
+\]
+Here
+\[
+  \mathrm{AIC}=\chi^2+2k
+\]
+penalizes the residual $\chi^2$ by twice the number $k$ of fit parameters.
+Lower AIC is preferred, but differences smaller than roughly $2$ do not
+meaningfully distinguish models.  The quadratic has the lowest AIC, but its
+advantage over linear is only $1.095$.
+
+\subsection{Held-out prediction and curvature test}
+
+The $\lambda=1.75$ point was excluded from training and then predicted:
+\[
+\begin{array}{lrrr}
+\toprule
+\text{model} & \text{prediction} & \text{residual}
+             & \text{standardized residual}\\
+\midrule
+\text{linear}      & -71.475791 & 0.022603 & 0.632\\
+\text{quadratic}   & -71.454738 & 0.001550 & 0.041\\
+\text{exponential} & -71.456425 & 0.003237 & 0.087\\
+\bottomrule
+\end{array}
+\]
+The quadratic predicted the held-out point best, closely followed by the
+exponential.  The linear prediction was nevertheless within $0.63$ standard
+deviations and therefore was not rejected by this test.
+
+The fitted quadratic curvature was
+\[
+  \beta_2=-0.2294\pm0.1293,
+\]
+with bootstrap $95\%$ interval
+\[
+  [-0.4849,\;0.0254]
+\]
+and two-sided $p=0.076$.  The evidence for curvature is consequently strong
+and reproducible but still falls short of the conventional $p<0.05$
+criterion.
+
+\section{What circuit depth implies for model choice}
+
+There is no universal gate-depth boundary at which one should switch from a
+linear to a quadratic or exponential extrapolator.  The relevant control
+variable is closer to an accumulated circuit error or ``circuit area,'' which
+depends jointly on depth, two-qubit error rates, gate composition, observable
+support, coherence, and the fidelity with which folding scales those errors.
+
+Majumdar \emph{et al.} varied two-qubit depth and depolarizing error and
+constructed calibration phase diagrams for linear, quadratic, exponential,
+and ``no-fit'' regions~\cite{majumdar2023}.  Their results support the
+following qualitative progression:
+\begin{enumerate}
+  \item At low depth and low accumulated error, the response is locally
+        linear; linear fitting is stable and has the smallest variance.
+  \item At greater circuit area, measurable curvature develops and quadratic
+        or exponential fits can lower RMSE.
+  \item At still larger depth/error, amplified expectation values approach
+        noise saturation.  Linear extrapolation can be precisely wrong, while
+        exponential fitting can become unstable; no fitted ZNE model is then
+        reliable.
+\end{enumerate}
+For factors $\{1,3,5\}$, the same work found curved extrapolators increasingly
+useful at larger depths, including hardware tests out to two-qubit depth
+$70$.  With much smaller factors such as $\{1,1.1,1.2\}$, linear fitting
+remained useful farther into the deeper/noisier regime and the no-fit region
+shrank~\cite{majumdar2023}.  This is consistent with using the present
+fractional grid rather than factors $3$ and $5$.
+
+Exponential behavior has a physical motivation under Markovian or Pauli
+noise, for which Pauli expectations can decay as one or several
+exponentials~\cite{cai2021,krebsbach2022}.  Experiments at large scale have
+also reported that exponential extrapolation can outperform linear fitting
+when changes among amplified-noise estimates are well resolved, while
+downgrading the model when the exponential becomes unstable
+\cite{kim2023utility}.  These results do not make exponential fitting
+universally correct: coherent, non-Markovian, gate-dependent, leakage, and
+nonuniformly amplified errors can violate the assumed response.
+
+For the present entry, the observed flattening, improved curved-model bias,
+and held-out prediction are consistent with the ``moderate accumulated
+error'' regime in which literature finds curved models useful.  The final
+selection is nevertheless not decisive: the exponential has the smallest
+observed simulator RMSE, the quadratic has almost the same fit quality with
+smaller variance, and the linear fit remains statistically acceptable.
+
+\section{Recommended use}
+
+\begin{enumerate}
+  \item Retain all factor estimates and their total variances, including
+        folding-pattern variance.
+  \item Use predeclared pilot-derived weights; do not select weights or models
+        merely because they land closest to a target that would be unknown on
+        hardware.
+  \item Report the linear estimate as the stable low-variance reference.
+        Report quadratic and offset-exponential estimates as curved-model
+        alternatives for this deep entry.
+  \item Prefer predictive checks, bootstrap intervals, and residual
+        diagnostics over choosing a model from circuit depth alone.
+  \item Reject ZNE when amplified points have saturated or when fitted
+        intercepts are unstable under modest changes of factors/model.
+  \item Before hardware deployment, fold the complete physical circuit,
+        including measurement-basis rotations, or explicitly quantify the
+        unamplified error contribution.
+\end{enumerate}
+
+\section{Saved artifacts}
+
+The final independent-seed pooled comparison is stored in
+\begin{verbatim}
+saved/runtime_runs/
+  20260724T024719Z_h2o_1.0_state0_orbital0_split_v1_qwc_fake_quebec/
+  probabilistic_zne_entry_1_1_20260727T162129Z/
+\end{verbatim}
+The directory includes the source run result, calibrated readout data, raw
+measurement histograms, folded circuits, numerical ZNE arrays,
+\path{zne_model_comparison.json.gz}, and
+\path{zne_model_bootstrap_samples.npz}.  A companion independently seeded
+high-shot run is
+\begin{verbatim}
+probabilistic_zne_entry_1_1_20260727T161644Z/
+\end{verbatim}
+
+\begin{thebibliography}{9}
+
+\bibitem{giurgica2020}
+T.~Giurgica-Tiron, Y.~Hindy, R.~LaRose, A.~Mari, and W.~J.~Zeng,
+``Digital zero noise extrapolation for quantum error mitigation,''
+\emph{2020 IEEE International Conference on Quantum Computing and
+Engineering}, pp.~306--316 (2020).
+\href{https://doi.org/10.1109/QCE49297.2020.00045}
+{doi:10.1109/QCE49297.2020.00045}.
+
+\bibitem{majumdar2023}
+R.~Majumdar, P.~Rivero, F.~Metz, A.~Hasan, and D.~S.~Wang,
+``Best practices for quantum error mitigation with digital zero-noise
+extrapolation,'' \emph{2023 IEEE International Conference on Quantum
+Computing and Engineering}, pp.~881--887 (2023).
+\href{https://doi.org/10.1109/QCE57702.2023.00102}
+{doi:10.1109/QCE57702.2023.00102}.
+
+\bibitem{cai2021}
+Z.~Cai,
+``Multi-exponential error extrapolation and combining error mitigation
+techniques for NISQ applications,'' \emph{npj Quantum Information}
+\textbf{7}, 80 (2021).
+\href{https://doi.org/10.1038/s41534-021-00404-3}
+{doi:10.1038/s41534-021-00404-3}.
+
+\bibitem{krebsbach2022}
+M.~Krebsbach, B.~Trauzettel, and A.~Calzona,
+``Optimization of Richardson extrapolation for quantum error mitigation,''
+arXiv:2201.08080 (2022).
+\url{https://arxiv.org/abs/2201.08080}.
+
+\bibitem{kim2023utility}
+Y.~Kim \emph{et al.},
+``Evidence for the utility of quantum computing before fault tolerance,''
+\emph{Nature} \textbf{618}, 500--505 (2023).
+\href{https://doi.org/10.1038/s41586-023-06096-3}
+{doi:10.1038/s41586-023-06096-3}.
+
+\end{thebibliography}
+
+\end{document}

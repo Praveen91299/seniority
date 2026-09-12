@@ -1,0 +1,18 @@
+Exact-parity symmetry-shift diagnostic
+entry: (0, 0)
+fragment: 0
+shots: 60882
+ideal fragment estimate: -30.6034385637
+raw noisy estimate: -15.9038411013
+sampled symmetry <S>: -0.179002003876
+symmetry eigenvalue: -1
+lambda: -24.8194965172
+shifted raw estimate: -11.4611014895
+recovered estimate: -36.2805980067
+raw bootstrap: {'mean': -15.904478378467221, 'std': 0.08537938806788288, 'bias': 14.698960185187367, 'rmse': 14.699208135173418}
+shifted bootstrap: {'mean': -36.27972052085293, 'std': 0.12086850794838976, 'bias': -5.676281957198345, 'rmse': 5.677568610185999}
+variance-optimal lambda: -3.25840945822
+variance-optimal bootstrap: {'mean': -18.57942714965797, 'std': 0.08437158377234094, 'bias': 12.024011413996618, 'rmse': 12.024307410081503}
+diagnostic bias-optimal lambda: -17.9045473092
+full entry raw bootstrap: {'mean': -60.18765994986348, 'std': 0.0853793880678829, 'bias': 14.80206473594739, 'rmse': 14.802310958853765}
+full entry shifted bootstrap: {'mean': -80.56290209224919, 'std': 0.12086850794838976, 'bias': -5.573177406438319, 'rmse': 5.574487857138846}

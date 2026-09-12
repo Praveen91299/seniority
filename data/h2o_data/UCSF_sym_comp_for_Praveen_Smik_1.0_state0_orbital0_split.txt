@@ -1,0 +1,33 @@
+Q-SENSE fixed-orbital state split
+source: data/h2o_data/UCSF_sym_comp_for_Praveen_Smik_1.0.dump
+state_index: 0
+fixed_orbital: 0
+source_rotations: 30
+retained_rotations: 24
+removed_rotations: 6
+
+sector 0:
+  probability: 5.137029924096271e-07
+  reconstruction_weight: 0.0007167307670315452
+  reference_occupation: [0, 1, 1, 1, 1, 1, 0]
+  initial_infidelity: 7.666416e-01
+  optimized_infidelity: 5.995204e-15
+  optimizer_success: True
+  optimizer_iterations: 11
+  objective_evaluations: 326
+  active_circuit_metrics: {'num_qubits': 6, 'depth': 105, 'size': 245, 'count_ops': {'rx': 120, 'rz': 72, 'cx': 48, 'x': 5}, 'two_qubit_gates': 48}
+
+sector 1:
+  probability: 0.999999486297005
+  reconstruction_weight: 0.9999997431484695
+  reference_occupation: [1, 1, 1, 1, 1, 0, 0]
+  initial_infidelity: 1.772218e-01
+  optimized_infidelity: 1.709743e-13
+  optimizer_success: True
+  optimizer_iterations: 38
+  objective_evaluations: 1126
+  active_circuit_metrics: {'num_qubits': 6, 'depth': 105, 'size': 244, 'count_ops': {'rx': 120, 'rz': 72, 'cx': 48, 'x': 4}, 'two_qubit_gates': 48}
+
+reconstruction_fidelity: 0.9999999999998239
+reconstruction_l2_error: 4.102543e-07
+pickle_output: data/h2o_data/UCSF_sym_comp_for_Praveen_Smik_1.0_state0_orbital0_split.dump

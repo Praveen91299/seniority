@@ -1,0 +1,4 @@
+# Runtime outputs are generated and can exceed several gigabytes.  Selected
+# compact summaries are force-added explicitly when they are worth preserving.
+*
+!.gitignore

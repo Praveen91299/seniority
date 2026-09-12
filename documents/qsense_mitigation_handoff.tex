@@ -1,0 +1,890 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=0.85in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!55!black,
+  citecolor=blue!55!black,
+  urlcolor=blue!55!black
+}
+\setlist{nosep}
+\newcommand{\Hmat}{\mathbf{H}}
+\newcommand{\Eideal}{E_{\mathrm{ideal}}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{Q-SENSE Error-Mitigation Explorations:\\Methods, Results, and Reproducible Handoff}
+\author{}
+\date{12 September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document records the error-mitigation studies performed for the Q-SENSE
+subspace estimator in this repository.  The main test case was H$_2$O at
+$R=1.0$~\AA{} with the optimized variational-orbital (VO) basis and the
+\code{FakeQuebec} noise model.  We isolated the dominant matrix-entry error,
+verified noiseless finite-shot statistics, tested exact-symmetry control
+variates, introduced an exact fixed-orbital sector split, implemented local
+readout mitigation, and studied deterministic and probabilistic local-folding
+zero-noise extrapolation (ZNE).  We also applied readout mitigation and linear
+ZNE to the complete 37-state perturbative (PT) matrix.  The principal findings
+are: (i) the original VO energy error is dominated by $H_{00}$; (ii) splitting
+the nearly fixed $Z_0$ sector reduces that dominant entry bias by about a factor
+of six without approximating the state span; (iii) local readout mitigation is
+helpful but does not remove the dominant simulator bias; (iv) curved ZNE fits
+reduce bias for one deep split-basis diagonal entry, at substantial variance
+cost; and (v) applying the original Q-SENSE shot allocation naively to every
+entry and ZNE factor is unreliable for the larger PT matrix.  Numerical claims
+below are tied to saved artifacts so they can be checked independently.
+\end{abstract}
+
+\section{Scope and status}
+
+All noisy results in this note are local finite-shot Qiskit Aer simulations.
+They use the calibration data, connectivity, native gate target, and noise
+model supplied by \code{FakeQuebec}; they are not executions on an IBM quantum
+processor.  The problem circuits use Aer's \code{statevector} method with
+\code{enable\_truncation=True}.  Consequently these are noisy stochastic,
+shot-based statevector simulations rather than density-matrix calculations.
+For the wide but unentangled readout-calibration circuits used by the
+full-matrix scripts, the method was changed to
+\code{matrix\_product\_state} to avoid allocating a 127-qubit statevector.
+
+The baseline Q-SENSE accuracy request is
+\[
+  \epsilon_E=1.6\times10^{-3}\ \mathrm{Ha}.
+\]
+This value is set by \code{TARGET\_ESTIMATE\_ACCURACY = 1.6e-3} in
+\path{scripts/sampling_and_sv.py}.  The original and split VO simulations
+predate the portable-output default and therefore retain several trusted local
+pickle files.  Newer mitigation runs save numerical data in JSON, NPZ, CSV,
+and circuits in QPY wherever practical.
+
+\subsection{Terminology and error metrics}
+
+For a matrix entry, bias means the observed estimate minus its exact noiseless
+value,
+\[
+  b_{ij}=\widehat H_{ij}-H_{ij}^{\mathrm{ideal}}.
+\]
+For an energy estimate, the same sign convention is used.  Standard
+deviations reported by the estimator describe finite-shot uncertainty under
+the sampled distribution; they do not include uncertainty in the noise model
+or, unless explicitly stated, the readout-calibration matrices.  We use
+\[
+  \mathrm{RMSE}=\sqrt{b^2+s^2}
+\]
+when $s^2$ is the estimated sampling variance.  Whenever a noisy matrix
+develops spurious eigenvalues below the desired state, both the algebraically
+lowest eigenpair and the eigenpair with maximum overlap with the ideal
+coefficient vector are reported.  The latter is called the
+\emph{overlap-tracked target}; it is a simulator diagnostic because the ideal
+vector would not be known on hardware.
+
+\section{Baseline Q-SENSE estimation}
+
+Let $\{\lvert\Phi_i\rangle\}$ be an orthonormal Q-SENSE basis and
+\[
+  H_{ij}=\langle\Phi_i\rvert\hat H\lvert\Phi_j\rangle,
+  \qquad
+  \Hmat\vec c=E\vec c.
+\]
+Each quantum matrix element is decomposed into jointly measurable fragments
+$f$.  If $\sigma_{ij,f}$ is the exact single-shot standard deviation of a
+fragment, the ideal first-order energy sensitivity gives the weights
+\[
+  w_{ij}=
+  \begin{cases}
+    |c_i|^2\sum_f\sigma_{ii,f},&i=j,\\
+    2|c_i c_j|\sum_f\sigma_{ij,f},&i>j.
+  \end{cases}
+\]
+Writing $M=\sum_{i\geq j}w_{ij}$, the implemented total-shot estimate and
+fragment allocation are, up to ceiling,
+\begin{align}
+  N&=\left\lceil\frac{M^2}{\epsilon_E^2}\right\rceil,\\
+  N_{ij,f}&=\left\lceil
+    N\frac{w_{ij}}{M}
+    \frac{\sigma_{ij,f}}{\sum_g\sigma_{ij,g}}
+  \right\rceil.
+\end{align}
+Thus observable coefficients matter through the exact fragment standard
+deviations and the shot allocation.  They are not encoded in a PUB's
+\code{target\_precision}: the local \code{BackendEstimatorV2} chooses its
+number of shots as $\lceil1/\epsilon_{\rm PUB}^2\rceil$, so the code passes
+\[
+  \epsilon_{\rm PUB}=\frac{1+10^{-12}}{\sqrt{N_{ij,f}}}
+\]
+only to reproduce the already calculated shot count exactly.
+
+Before execution, state-preparation and interference circuits are transpiled
+against the \code{FakeQuebec} target with optimization level 3 and transpiler
+seed 0.  This enforces its native gate set and limited connectivity.  The
+nominal circuit width remains 127 in saved QPY objects, but Aer truncation
+simulates only active connected qubits; the completed VO runs reported ranges
+of 5--19 active qubits across groups.  A local
+\code{CapturingBackendEstimatorV2} is used directly, without a Runtime batch,
+and stores the exact measurement histograms used for its expectations.
+
+\subsection{Original 11-state VO baseline}
+
+The completed run is
+\begin{verbatim}
+saved/runtime_runs/
+  20260722T164209Z_h2o_1.0_qwc_fake_quebec/
+\end{verbatim}
+It used 45 quantum matrix elements, 585 PUBs, and 205,731 retained shots.
+The maximum transpiled circuit depth was 1006 and the maximum two-qubit gate
+count was 376.  Runtime-level mitigation was disabled.  The result was
+\[
+  \Eideal=-75.0176664101\ \mathrm{Ha},\qquad
+  \widehat E=-74.2180687901\ \mathrm{Ha},
+\]
+with
+\[
+ \text{bias}=+0.7995976200\ \mathrm{Ha},\qquad
+ \text{standard deviation}=0.7643728997\ \mathrm{Ha},\qquad
+ \text{RMSE}=1.1061746172\ \mathrm{Ha}.
+\]
+
+The leading ideal coefficient weight is
+$|c_0|^2=0.9846882$.  The corresponding diagonal entry had
+\[
+ H_{00}^{\mathrm{ideal}}=-74.9897246858,\qquad
+ \widehat H_{00}=-59.9089790839,
+\]
+or bias $+15.0807456019$~Ha.  Replacing only this noisy entry by its ideal
+value while retaining all other noisy entries gives an energy bias of
+$+0.0275449236$~Ha and coefficient-vector fidelity $0.9839845$.  This
+counterfactual establishes that $H_{00}$, rather than the accumulation of all
+other errors, dominated this particular run.
+
+\subsection{Noiseless check of \texorpdfstring{$H_{00}$}{H00} statistics}
+
+A finite-shot run with no noise model gave entry bias $+0.00246196$~Ha.
+A separate 10,000-replicate bootstrap found
+\[
+\begin{array}{lc}
+\toprule
+\text{quantity} & \text{standard error (Ha)}\\
+\midrule
+\text{analytic Q-SENSE prediction} & 0.00139248\\
+\text{parametric bootstrap from exact probabilities} & 0.00138930\\
+\text{nonparametric bootstrap of the finite histogram} & 0.00156161\\
+\bottomrule
+\end{array}
+\]
+The parametric result agrees with the analytic calculation to $0.23\%$.
+The larger nonparametric value reflects the particular finite histogram and
+rare outcomes.  The saved quantity $0.21810137$ for fragment 0 is a
+\emph{single-shot} standard deviation, not the standard error after 60,882
+shots.  These checks support the noiseless variance implementation and show
+that the large noisy bias is not a failure of ideal shot-noise accounting.
+
+\section{Exact observable shifts as control variates}
+
+Suppose the target state obeys an exact constraint
+$\langle C\rangle=c$.  The shifted estimator
+\[
+  \widehat O_\lambda
+  =\widehat O+\lambda(\widehat C-c)
+\]
+has the same ideal expectation as $O$.  When $O$ and $C$ are evaluated from
+the same bit strings,
+\[
+ \operatorname{Var}(\widehat O_\lambda)
+ =\operatorname{Var}(\widehat O)
+  +2\lambda\operatorname{Cov}(\widehat O,\widehat C)
+  +\lambda^2\operatorname{Var}(\widehat C),
+\]
+so the variance-optimal coefficient is
+\[
+ \lambda_{\rm var}=-
+ \frac{\operatorname{Cov}(\widehat O,\widehat C)}
+      {\operatorname{Var}(\widehat C)}.
+\]
+This coefficient minimizes variance, not hardware bias.  A coefficient
+\[
+ \lambda_{\rm bias}=-
+ \frac{\widehat O-O_{\rm ideal}}{\widehat C-c}
+\]
+was also computed to diagnose whether a control could cancel the observed
+bias.  It is labelled \emph{diagnostic bias-optimal} because it uses the ideal
+answer and must not be selected this way in an unknown production problem.
+
+All results in this section use entry $(0,0)$, fragment 0, its 60,882 saved
+shots, and 20,000 multinomial bootstrap resamples.  The ideal fragment value
+is $-30.6034385637$~Ha.  The raw bootstrap fragment bias is approximately
+$+14.70$~Ha; the other fragments and exact classical contribution make the
+raw full-entry bias approximately $+14.80$~Ha.
+
+\subsection{Global parity}
+
+The first control was the tapered-register parity
+$P=\prod_q Z_q$ with eigenvalue $p=-1$.  With
+$\lambda=-24.8194965$, chosen from the largest observable coefficient, the
+sampled parity was $-0.1790020$.  The full-entry bias changed from
+$+14.8021$ to $-5.5732$~Ha, while the bootstrap standard deviation increased
+from $0.08538$ to $0.12087$~Ha.  The correction therefore crossed the ideal
+value: the large parity violation multiplied by a coefficient chosen for
+Pauli-coefficient cancellation rather than noise-response calibration.
+The variance-optimal coefficient, $-3.2584$, barely improved the bias
+($+12.0240$~Ha at fragment level).  The diagnostic bias-optimal coefficient
+was $-17.9045$.
+
+\subsection{Pair number}
+
+For seven tapered occupation qubits, the pair-number operator is
+\[
+  N_{\rm pair}=\frac{7}{2}I-\frac12\sum_{q=0}^{6}Z_q,
+  \qquad \langle N_{\rm pair}\rangle=5.
+\]
+The same noisy bit strings gave $\widehat N_{\rm pair}=4.5888768$, much
+closer to the exact value than the parity estimator was to $-1$.  Let
+$a=24.8194965$ denote the magnitude used in the coefficient arguments.
+The tested results were
+\[
+\begin{array}{lrrrr}
+\toprule
+\text{choice} & \lambda & \text{full-entry bias} & \text{bootstrap std.}
+              & \text{RMSE}\\
+\midrule
+\text{raw} & 0 & 14.8014 & 0.08561 & 14.8017\\
+2a/5 & 9.9278 & 10.7202 & 0.07320 & 10.7204\\
+2a/3 & 16.5463 & 7.9993 & 0.07723 & 7.9997\\
+4a/3 & 33.0927 & 1.1972 & 0.11918 & 1.2031\\
+\lambda_{\rm var} & 10.6252 & 10.4335 & 0.07314 & 10.4337\\
+\bottomrule
+\end{array}
+\]
+The variance-optimal full-entry values were reconstructed from the saved
+fragment samples by adding the same fixed contribution as in the other rows.
+The diagnostic bias-optimal value was $35.7547$.  The closeness of $2a/5$ to
+$\lambda_{\rm var}$ is empirical, not a general identity: $2a/5$ follows a
+coefficient-balancing argument, whereas $\lambda_{\rm var}$ follows a sampled
+covariance ratio.
+
+\subsection{\texorpdfstring{$Z_0$}{Z0}-weighted number control}
+
+To make the control share more of the dominant $Z_0$ term's noise response,
+we tested
+\[
+  C=(N_{\rm pair}-5)Z_0,
+  \qquad \langle C\rangle=0.
+\]
+For seven qubits,
+\[
+ C=-\frac12\left(3Z_0+I+\sum_{j\ne0}Z_0Z_j\right).
+\]
+This algebra explains why $\lambda=2a/3$ cancels the explicit dominant
+$Z_0$ coefficient in the shifted observable.  Cancellation of that one
+coefficient does \emph{not} force the noisy expectation of the entire shifted
+quantum part to vanish, because the identity and six $Z_0Z_j$ terms remain.
+The measured control value was $-0.1876745$.
+
+The variance-optimal value $\lambda=10.2948$ reduced the standard deviation
+from $0.08559$ to $0.07231$~Ha but left full-entry bias $+12.8710$~Ha.
+Coefficient cancellation ($\lambda=16.5463$) left bias $+11.6976$~Ha.
+The deliberately large choice $\lambda=2a=49.6390$ reduced full-entry bias to
+$+5.4862$~Ha while increasing the standard deviation to $0.18940$~Ha.  The
+diagnostic bias-optimal coefficient $78.3250$ produced bias $+0.1019$~Ha and
+standard deviation $0.31120$~Ha, but it is target-leaking and therefore not a
+usable mitigation prescription.
+
+The control's shared $Z_0$ and $Z_0Z_j$ support gives it a more similar noise
+profile to the dominant observable term than $N_{\rm pair}-5$ alone.  This is
+a plausible mechanism, not a theorem under the gate-dependent
+\code{FakeQuebec} model.  In the actual diagnostic, the unweighted number
+control with $\lambda=4a/3$ gave a better operationally motivated bias result
+than the tested weighted coefficients.  A future control should be selected
+from independent pilot data or a noise model using covariance and response
+similarity, then frozen before evaluating production data.
+
+\section{Exact fixed-orbital sector split}
+
+The dominant VO state was found to occupy tapered orbital/qubit 0 almost
+entirely in $\lvert1\rangle$.  Rather than use $Z_0$ only as a noisy measured
+control, state 0 was split into its normalized fixed-$Z_0$ sectors.  Six pair
+generators acting on orbital 0 were removed; the remaining 24 generators were
+warm-started from the original angles and independently reoptimized in each
+six-qubit active sector.  The results were
+\[
+\begin{array}{lrr}
+\toprule
+ & q_0=0 & q_0=1\\
+\midrule
+\text{sector probability} & 5.1370\times10^{-7} & 0.9999994863\\
+\text{number of determinants} & 6 & 15\\
+\text{optimized infidelity} & 6.0\times10^{-15} & 1.7\times10^{-13}\\
+\text{active-circuit two-qubit gates} & 48 & 48\\
+\bottomrule
+\end{array}
+\]
+Their weighted coherent reconstruction has fidelity
+$0.9999999999998239$ with the original 21-determinant state.  In the expanded
+Q-SENSE basis the two normalized sectors are used as separate states, without
+their reconstruction weights.  They are mutually orthogonal by construction,
+and the remaining old basis states lie in different pre-existing symmetry
+sectors as required by the method.  No generalized eigenvalue problem is
+introduced.  Qubit 0 is classical and removed from the active state circuits
+for these two states.
+
+The split basis contains 12 rather than 11 states.  Its dominant physical
+component is entry $(1,1)$, corresponding to the $q_0=1$ sector, with
+$|c_1|^2=0.9846877$.  Its raw entry bias was $+2.5567470$~Ha, versus
+$+15.0807456$~Ha for the unsplit $H_{00}$.  If only split entry $(1,1)$ is
+set to ideal, the remaining noisy matrix gives energy bias $+0.0228070$~Ha
+and coefficient fidelity $0.979334$.  This confirms a large structural bias
+reduction for the dominant entry.
+
+The single complete split run nevertheless had energy bias $+0.8839538$~Ha
+and coefficient fidelity $1.73\times10^{-5}$ because the biased dominant
+diagonal no longer remained the lowest state in the noisy matrix.  It used
+51 quantum matrix elements, 626 PUBs, and 201,422 retained shots.  This result
+does not negate the entry-level improvement; it shows that the total estimator
+still needs mitigation or sufficient sampling for the other entries.
+
+\section{Local readout-error mitigation}
+
+\subsection{Implemented estimator}
+
+For every measured physical qubit $q$, two calibration experiments estimate
+\[
+ A_q=
+ \begin{pmatrix}
+ p(0|0)&p(0|1)\\
+ p(1|0)&p(1|1)
+ \end{pmatrix}.
+\]
+All support qubits are prepared and measured in parallel, so the independent
+local model requires only two calibration circuits: one all-zero and one
+all-one circuit, each with $S_{\rm cal}$ shots.  For a measured Pauli product
+with support $Q$, the corrected outcome weight is evaluated using
+\[
+ \bigotimes_{q\in Q} A_q^{-1}.
+\]
+The code applies these factors directly to each observed bit string and
+computes both the corrected first and second moments.  It therefore avoids
+constructing a dense $2^{|Q|}\times2^{|Q|}$ matrix.  Calibration cost is
+$2S_{\rm cal}$ shots, independent of support width under the parallel local
+model, while per-outcome processing is linear in Pauli support.
+
+The statistical overhead is not width-independent.  Defining the readout
+contrast
+\[
+ r_q=1-p(1|0)-p(0|1),
+\]
+a symmetric-error approximation gives a worst-case variance amplification
+for a Pauli product of roughly
+\[
+ \gamma_Q\simeq\prod_{q\in Q}r_q^{-2}.
+\]
+Thus local inversion is computationally scalable but can become statistically
+expensive for long Pauli strings or poorly conditioned $A_q$.
+
+The preferred split-diagonal calibration used $S_{\rm cal}=20{,}000$ and
+physical qubits $\{45,54,62,63,64,65\}$.  The assignment matrices were nearly
+symmetric, with single-qubit misassignment probabilities between about
+$0.42\%$ and $1.90\%$.  For example,
+\[
+ A_{62}=\begin{pmatrix}
+ 0.98105&0.01870\\0.01895&0.98130
+ \end{pmatrix}.
+\]
+This symmetry is why readout twirling was not expected to add a large benefit;
+readout twirling itself has not been tested.
+
+\subsection{Split-basis diagonal results}
+
+The paired comparison reran the same circuits and reports raw and mitigated
+estimates from the same histograms.  This is the correct comparison; the
+``previous bias'' column came from an independent earlier run and can differ
+because of finite shots.  For the important $(1,1)$ entry,
+\[
+  b_{11}^{\rm paired\ raw}=+2.577674\ \mathrm{Ha},\qquad
+  b_{11}^{\rm readout}=+2.498453\ \mathrm{Ha}.
+\]
+Readout inversion removed only $0.07922$~Ha of a roughly $2.58$~Ha bias.
+Across the six quantumly sampled diagonals, the absolute paired bias decreased
+for all six; the mean absolute bias fell from $1.6487$ to $1.3961$~Ha.
+Several of these entries had only 3--317 shots, so individual improvements and
+zero empirical standard deviations are noisy diagnostics, not precision
+benchmarks.  Fully classical entries are copied exactly and assigned zero
+bias and variance by construction.
+
+\subsection{Unpropagated calibration uncertainty}
+
+Current error bars condition on the estimated $A_q$ and omit its finite-shot
+uncertainty.  A complete analysis should resample each calibration histogram,
+rebuild every $A_q^{-1}$, resample problem histograms, and repeat mitigation,
+matrix assembly, and diagonalization.  This hierarchical bootstrap directly
+provides the calibration-induced component of entry and energy variance.
+Choose $S_{\rm cal}$ so that this component is a small predeclared fraction of
+the total variance budget.  The calibration counts are saved, so no new noisy
+run is required to implement this analysis.
+
+The reusable code is in \path{src/mitigation.py}; the main switch is
+\code{enable\_readout\_mitigation} or environment variable
+\code{QSENSE\_ENABLE\_READOUT\_MITIGATION}.  Runtime resilience levels are
+not used: the mitigation stack is explicit.
+
+\section{Zero-noise extrapolation}
+
+\subsection{Folding and transpilation convention}
+
+For an eligible native gate $U$, local folding replaces
+\[
+  U\longmapsto UU^\dagger U,
+\]
+which is ideal-equivalent but executes additional noisy operations.  Full
+local folding was first tested at factors $\{1,3,5\}$.  For a fractional
+factor $1\leq\lambda\leq3$, each eligible gate is independently folded with
+probability
+\[
+  p_{\rm fold}=\frac{\lambda-1}{2}.
+\]
+Eight randomized folding patterns are used for each non-unit factor.  The
+factor's fixed shot budget is divided among the patterns; randomization raises
+the circuit/PUB count, not the total shots, unless the user separately raises
+the per-factor budget.
+
+The source circuits have already been transpiled at optimization level 3 to
+the \code{FakeQuebec} native basis and layout.  Folding is then performed in
+that basis.  Only operations whose backend target reports nonzero error are
+eligible.  IBM-style $R_z$ operations are normally virtual frame changes and
+the fake backend reports zero error, so they are not folded.  This also
+typically holds on a real IBM device when the final ISA circuit retains an
+$R_z$, but the live backend target must be checked.  The inverse of an
+\code{sx} is implemented in the native basis as
+$R_z(\pi)\,\code{sx}\,R_z(-\pi)$.  If folding introduces an unsupported gate,
+it is transpiled at optimization level 0 with the original layout to avoid
+optimizing away the fold.
+
+The estimator constructs measurement-basis rotations after this folding
+stage.  Those rotations are not folded in the current implementation.
+Therefore $\lambda$ scales the saved state/interference circuit's eligible
+gates, not every error source in the complete measured circuit.  Realized
+gate counts and fold seeds are saved and should be checked.
+
+In an ideal noiseless calculation all folding patterns implement the same
+unitary, so their exact expectation values are identical.  Under
+gate-dependent and location-dependent noise, patterns with the same expected
+$\lambda$ can have different means.  Finite-shot noise can mask this
+between-pattern variance; the implementation combines resolved pattern spread
+with within-pattern shot variance.
+
+\subsection{Linear and variance-weighted extrapolation}
+
+For factors $\lambda_i$, ordinary linear ZNE fits
+\[
+  E(\lambda)=\beta_0+\beta_1\lambda,
+\]
+and takes $\widehat E(0)=\widehat\beta_0=\sum_i c_i\widehat E_i$.
+Variance-weighted linear ZNE minimizes
+\[
+  \chi^2=\sum_i
+  \frac{[\widehat E_i-(\beta_0+\beta_1\lambda_i)]^2}{v_i},
+\]
+using inverse total factor variances.  For independent factors,
+\[
+ \operatorname{Var}[\widehat E(0)]=\sum_i c_i^2v_i.
+\]
+If the single-shot standard deviations are $\sigma_i$ and the coefficients
+are fixed, the variance-optimal allocation at fixed total shots is
+\[
+  N_i\propto |c_i|\sigma_i.
+\]
+There is a design loop: changing $N_i$ changes $v_i$, which changes the
+weighted-fit coefficients $c_i$.  The consistent practical solution is to
+estimate $\sigma_i$ and weights in an independent pilot, freeze them, impose a
+minimum diagnostic allocation at interior factors, and then execute the
+production allocation once.  Repeatedly adapting weights to the same data
+would invalidate a simple uncertainty interpretation.
+
+\subsection{Full-fold diagnostic on split entry
+\texorpdfstring{$(0,0)$}{(0,0)}}
+
+The initial $\{1,3,5\}$ full-fold test concerned the low-weight split entry
+$(0,0)$, not the dominant $(1,1)$ entry.  With 60,000 shots per factor and
+readout mitigation, the factor estimates were
+\[
+ (-27.66718,-23.69699,-21.66888)\ \mathrm{Ha}.
+\]
+Linear extrapolation gave $-28.84307$~Ha versus ideal $-31.03017$~Ha:
+bias $+2.18710$~Ha, empirical standard deviation $0.22192$~Ha, and RMSE
+$2.19833$~Ha.  The scale-one bias was $+3.36299$~Ha.  This result is distinct
+from the earlier $2.5777\rightarrow2.4985$~Ha readout result, which concerned
+split entry $(1,1)$ and did not apply ZNE.
+
+Factors 3 and 5 were judged unnecessarily severe for these already deep,
+noisy circuits because amplified values moved toward saturation.  Subsequent
+work used smaller probabilistic factors.
+
+\subsection{Probabilistic ZNE on dominant split entry
+\texorpdfstring{$(1,1)$}{(1,1)}}
+
+With factors $\{1,1.5,2\}$, eight patterns per non-unit factor, and the cached
+per-factor fragment allocation, the scale-one and linear-ZNE results were
+\[
+\begin{array}{lrrr}
+\toprule
+ & \text{bias (Ha)} & \text{std. (Ha)} & \text{RMSE (Ha)}\\
+\midrule
+\lambda=1 & 2.49492 & 0.06567 & 2.49579\\
+\text{ordinary linear ZNE} & 1.30222 & 0.14826 & 1.31063\\
+\bottomrule
+\end{array}
+\]
+The extrapolation reduced bias by about $48\%$ but more than doubled the
+standard deviation.
+
+A pilot-based allocation preserved the same total of 441,951 shots but used
+\[
+ (N_1,N_{1.5},N_2)=(234371,45356,162224).
+\]
+The fitted intercept coefficients became
+\[
+ (c_1,c_{1.5},c_2)=(1.98889,0.02221,-1.01111).
+\]
+The resulting bias, standard deviation, and RMSE were $1.21341$, $0.12433$,
+and $1.21976$~Ha, respectively.  Relative to the equal-allocation run, the
+variance decreased by $29.7\%$ and RMSE by $6.9\%$.
+
+\subsection{Curved models and five-factor study}
+
+The final grid was
+\[
+ \lambda\in\{1,1.25,1.5,1.75,2\}.
+\]
+Two independently seeded runs were inverse-variance pooled, for a nominal
+883,902 shots per factor.  The pooled data were
+\[
+\begin{array}{crr}
+\toprule
+\lambda&\widehat E(\lambda)&\text{standard deviation}\\
+\midrule
+1.00&-72.509300&0.02681\\
+1.25&-72.133633&0.02773\\
+1.50&-71.774107&0.03487\\
+1.75&-71.453188&0.02890\\
+2.00&-71.160255&0.03185\\
+\bottomrule
+\end{array}
+\]
+Three variance-weighted extrapolators were compared:
+\begin{align}
+ E_{\rm lin}(\lambda)&=\beta_0+\beta_1\lambda,\\
+ E_{\rm quad}(\lambda)&=\beta_0+\beta_1\lambda+\beta_2\lambda^2,\\
+ E_{\rm exp}(\lambda)&=E_0+s[1-e^{-k\lambda}]/k.
+\end{align}
+Factor-level parametric bootstrap with 10,000 samples gave
+\[
+\begin{array}{lrrrr}
+\toprule
+\text{model}&E(0)&\text{bias}&\text{std.}&\text{RMSE}\\
+\midrule
+\text{linear}&-73.84512&1.14458&0.0554&1.1459\\
+\text{quadratic}&-74.32102&0.66868&0.2752&0.7231\\
+\text{offset exponential}&-74.40536&0.58434&0.3809&0.6975\\
+\bottomrule
+\end{array}
+\]
+Curved models reduced observed simulator bias but amplified variance.  The
+quadratic coefficient was $\beta_2=-0.2294\pm0.1293$ with bootstrap 95\%
+interval $[-0.4849,0.0254]$ and two-sided $p=0.076$.  Holding out
+$\lambda=1.75$, standardized prediction residuals were 0.632, 0.041, and
+0.087 for linear, quadratic, and exponential fits.  Curvature is therefore
+supported by the trend and prediction test but was not conventionally
+significant at $p<0.05$.
+
+For Gaussian residuals, the reported
+$\mathrm{AIC}=\chi^2+2k$ penalizes fit residuals by twice the number of model
+parameters.  The AIC values were 7.129, 6.034, and 6.051.  Differences below
+roughly 2 do not decisively select a model, so the quadratic's 1.095 advantage
+over linear was suggestive rather than conclusive.  More independent factors
+are more valuable for detecting curvature than simply reducing error bars on
+the same three points, although both help.  There is no universal circuit
+depth at which a curved model becomes correct; accumulated error, observable
+support, gate composition, and saturation matter together
+\cite{majumdar2023,cai2021}.
+
+\section{Complete-matrix mitigation experiments}
+
+\subsection{Original 11-state VO matrix}
+
+A script was written to fix $(0,0)$ at its ideal value and apply local readout
+mitigation plus probabilistic linear ZNE to every other quantum entry:
+\path{scripts/run_full_matrix_readout_linear_zne.py}.  The first attempt
+failed because readout calibration with a 127-qubit statevector exceeded
+\code{max\_memory\_mb}.  Calibration was changed to MPS, while problem
+circuits retained truncated noisy statevector simulation.  No complete
+11-state full-matrix mitigated result is currently saved.  The incomplete
+directories ending in \code{20260813T032929Z} and
+\code{20260813T033440Z} must not be treated as results.
+
+The useful unmitigated counterfactual is the calculation above: with ideal
+$H_{00}$ and every other original noisy entry unchanged, the energy bias is
+$+0.0275449$~Ha.  This is the baseline a future completed full-matrix
+mitigation run should beat.
+
+\subsection{Completed 37-state PT matrix}
+
+The analogous PT workflow completed and is stored under
+\begin{verbatim}
+saved/runtime_runs/pt_h2o_1.0/
+  pt_readout_linear_zne_20260813T134200Z/
+\end{verbatim}
+It fixed $(0,0)$ to ideal, used factors $\{1,1.5,2\}$, eight patterns per
+non-unit factor, and respective totals of 19,900, 33,937, and 33,937 shots.
+There were 40,358 folded PUBs in 17 sequential simulator batches.  The run
+used the original Q-SENSE allocation independently at each factor.
+
+\[
+\begin{array}{lrrrr}
+\toprule
+\text{matrix}&\text{lowest bias}&\text{lowest overlap}
+ &\text{tracked bias}&\text{tracked overlap}\\
+\midrule
+\text{same-shot raw}&-8.35454&0.000781&-0.005163&0.91069\\
+\text{readout only}&-9.17104&0.000777&-0.068029&0.71424\\
+\text{readout + linear ZNE}&-34.28791&0.000437&-0.113953&0.80240\\
+\bottomrule
+\end{array}
+\]
+Large noisy diagonal errors create spurious low eigenvalues, so the lowest
+energy is not a meaningful estimate here.  Even for the overlap-tracked
+state, readout correction and linear ZNE worsened energy bias relative to a
+fortuitously accurate raw result.  This is evidence against applying the
+baseline allocation mechanically to all entries and factors; it is not
+evidence that ZNE must fail after a redesigned allocation.
+
+Many fragments received one or only a few shots.  A one-shot empirical
+variance is zero but does not mean the estimator is exact.  Post-processing
+therefore used the floor
+\[
+ v_{ij}^{\rm used}=\max\left(
+ v_{ij}^{\rm empirical},
+ \sum_f\frac{\sigma_{ij,f,\rm ideal}^2}{N_{ij,f}}
+ \right).
+\]
+This floor was applied 506 times.  Forty-seven ill-conditioned weighted
+linear fits fell back to ordinary least-squares coefficients while retaining
+the same linear model.  These counts diagnose an underresolved design.
+
+\subsection{Leading PT fragment and increased-shot test}
+
+Entry $(23,0)$, fragment 0 was isolated as a leading cause of coefficient
+vector error.  Its ideal entry is $2.3553\times10^{-5}$~Ha, but the original
+four-shot raw fragment estimate was $-0.17943$~Ha.  The transpiled fragment
+circuit has depth 254 and 90 native ECR gates.  The two PT states contain only
+two and one pair rotations, with angles $-6.99\times10^{-4}$ and
+$-4.78\times10^{-4}$ radians; their individual logical preparations have
+depths 15 and 8 with four and three CX gates.  Hence most of the 90-ECR cost
+comes from the interference/controlled-swap construction and routing, not
+from the small pair rotations.
+
+Eight independent noisy replicas at 100, 500, 2,000, and 10,000 shots showed
+that more shots reduce spread but do not remove device-model bias.  At 10,000
+shots the mean entry biases were $+0.03780$~Ha raw and $+0.04215$~Ha after
+readout correction.  The corresponding overlap-tracked energy biases were
+$+0.037685$ and $+0.032139$~Ha.  Thus the original four-shot value happened
+to cancel other matrix errors and gave a misleadingly small total-energy
+bias.  In a separate noise-free study with 32 replicas per shot count, the
+mean bias remained statistically consistent with zero and the single-run
+standard deviation decreased from $3.03\times10^{-4}$ at 100 shots to
+$3.36\times10^{-5}$ at 10,000 shots, consistent with $N^{-1/2}$ convergence.
+
+\section{Conclusions supported by the data}
+
+\begin{enumerate}
+  \item The original H$_2$O VO error at $R=1.0$~\AA{} is overwhelmingly tied
+        to one high-weight diagonal entry.  Increasing shots cannot remove
+        its noise-model bias.
+  \item Exact control variates can trade bias against variance when the
+        control experiences correlated noise.  Variance-optimal and
+        bias-optimal coefficients answer different questions.  Coefficients
+        fitted using the ideal target are diagnostics only.
+  \item The fixed-$Z_0$ sector split is the strongest presently demonstrated
+        operational improvement to the dominant entry.  It changes the basis
+        and measurement cost but preserves the original state exactly within
+        numerical optimization error.
+  \item Local readout inversion consistently improved the paired sampled
+        diagonals, but the dominant-entry improvement was modest.  Readout is
+        therefore not the main error source under this fake-backend model.
+  \item Probabilistic ZNE with small factors is preferable here to full
+        factors 3 and 5.  For split entry $(1,1)$, ZNE roughly halved bias.
+        Curved models reduced RMSE further, but with much larger uncertainty
+        and no decisive model-selection result.
+  \item The completed PT matrix shows that entrywise mitigation can destabilize
+        diagonalization when shots are allocated for the unmitigated
+        first-order energy objective.  Full-matrix mitigation needs a new
+        joint allocation accounting for extrapolation coefficients, readout
+        overhead, minimum per-fragment resolution, and eigenvalue sensitivity.
+\end{enumerate}
+
+\section{Known limitations and recommended next work}
+
+\begin{enumerate}
+  \item Implement a hierarchical bootstrap that resamples calibration and
+        problem histograms together.  Use it to choose $S_{\rm cal}$ and to
+        propagate uncertainty through diagonalization.
+  \item Redesign full-matrix allocation using pilot estimates of each
+        factor's variance and fixed extrapolation coefficients.  Enforce a
+        scientifically chosen minimum number of shots per retained fragment;
+        never interpret one-shot empirical variance as zero uncertainty.
+  \item Fold the complete physical measurement circuit, including estimator
+        basis rotations, or explicitly measure the unamplified contribution.
+  \item Test model stability under modest changes of factor grid, fold seed,
+        and held-out factor.  Reject extrapolation when amplified values have
+        saturated or the intercept is unstable.
+  \item Explore additional exact controls that share the dominant Pauli
+        support.  Select coefficients from independent pilots or a justified
+        noise model, not proximity to an ideal answer.
+  \item Generalize the fixed-orbital split only where occupation diagnostics
+        show an almost fixed tapered qubit.  Record reconstruction fidelity,
+        enlarged matrix cost, and resulting shot allocation at every geometry.
+  \item Revalidate the conclusions on current real-device calibration data.
+        \code{FakeQuebec} establishes behavior of one local model, not a
+        hardware-independent result.
+\end{enumerate}
+
+\section{Reproduction guide}
+
+Run commands from the repository's inner \code{seniority/} directory using
+the \code{SenDev} environment.  The principal scripts are:
+\begin{verbatim}
+# Build and verify the exact fixed-orbital split
+python scripts/build_orbital0_split_states.py
+
+# Baseline split sampling and local noisy simulation
+python scripts/sampling_and_sv_orbital0_split.py
+
+# Readout-mitigated split diagonals
+python scripts/run_readout_mitigated_diagonals.py \
+  --run-dir saved/runtime_runs/<split-run>
+
+# One-entry probabilistic readout + ZNE
+python scripts/run_probabilistic_zne_entry.py --entry 1
+
+# Compare linear, quadratic, and exponential models
+python scripts/fit_zne_models.py <result-directories>
+
+# Inspect a full-matrix job without running it
+python scripts/run_full_matrix_readout_linear_zne.py --dry-run
+
+# Resume PT aggregation from already completed batches
+python scripts/run_pt_readout_linear_zne.py \
+  --resume-run saved/runtime_runs/pt_h2o_1.0/\
+pt_readout_linear_zne_20260813T134200Z
+\end{verbatim}
+Command-line help should be consulted before a new expensive run because
+defaults and required paths differ among the exploratory scripts.
+
+Portable JSON can be loaded without reconstructing Qiskit result objects:
+\begin{verbatim}
+from pathlib import Path
+from src.saved_run_io import load_json
+import numpy as np
+
+run = Path("saved/runtime_runs/<run-directory>")
+metadata = load_json(run / "run_results.json.gz")
+histograms = load_json(run / "raw_measurement_histograms.json.gz")
+arrays = np.load(run / "matrices_and_eigenvectors.npz",
+                 allow_pickle=False)
+
+ideal_matrix = arrays["ideal_matrix"]
+noisy_matrix = arrays["noisy_matrix"]
+ideal_c = arrays["ideal_eigenvector"]
+noisy_c = arrays["noisy_eigenvector"]
+\end{verbatim}
+For mitigation result directories, the principal files are
+\begin{verbatim}
+results.json.gz
+fragment_results.json.gz
+batches/*.json.gz
+\end{verbatim}
+as indicated by the script README.  Load QPY circuits with
+\code{qiskit.qpy.load}.  Legacy \code{*.pkl} and \code{*.dump} files should
+be unpickled only when they are trusted local artifacts; Qiskit container
+pickles are version-sensitive and one historical raw \code{DataBin} pickle is
+known to be unreadable under a newer Qiskit version.
+
+\subsection{Authoritative artifact map}
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.31\textwidth}
+                  >{\raggedright\arraybackslash}p{0.61\textwidth}}
+\toprule
+\text{Purpose} & \text{Repository-relative path}\\
+\midrule
+\endhead
+Original VO baseline &
+\path{saved/runtime_runs/20260722T164209Z_h2o_1.0_qwc_fake_quebec/}\\
+Noiseless and symmetry-shift diagnostics &
+Same directory; files beginning \path{bootstrap_noiseless},
+\path{noiseless_control}, \path{symmetry_shift}, \path{number_shift}, and
+\path{z0_weighted_number_shift}.\\
+Split-state construction &
+\path{data/h2o_data/UCSF_sym_comp_for_Praveen_Smik_1.0_state0_orbital0_split.dump}
+and companion \path{.txt}.\\
+Split VO baseline &
+\path{saved/runtime_runs/20260724T024719Z_h2o_1.0_state0_orbital0_split_v1_qwc_fake_quebec/}\\
+Preferred readout diagonal run &
+Split run plus \path{readout_mitigated_diagonals_20260724T211017Z/}.\\
+Initial and optimized three-factor ZNE &
+Split run plus \path{probabilistic_zne_entry_1_1_20260725T200028Z/} and
+\path{...20260725T203218Z/}.\\
+Final five-factor studies &
+Split run plus \path{probabilistic_zne_entry_1_1_20260727T161644Z/} and
+\path{...20260727T162129Z/}.\\
+Detailed ZNE-only note & \path{documents/zne_study_summary.tex}.\\
+Completed PT full-matrix run &
+\path{saved/runtime_runs/pt_h2o_1.0/pt_readout_linear_zne_20260813T134200Z/}.\\
+Reusable mitigation routines & \path{src/mitigation.py}.\\
+Raw-count estimator adapter & \path{src/capturing_backend_estimator.py}.\\
+Script inventory & \path{scripts/README.md}.\\
+\bottomrule
+\end{longtable}
+
+\begin{thebibliography}{9}
+
+\bibitem{giurgica2020}
+T.~Giurgica-Tiron, Y.~Hindy, R.~LaRose, A.~Mari, and W.~J.~Zeng,
+``Digital zero noise extrapolation for quantum error mitigation,''
+\emph{2020 IEEE International Conference on Quantum Computing and
+Engineering}, 306--316 (2020).
+\href{https://doi.org/10.1109/QCE49297.2020.00045}
+{doi:10.1109/QCE49297.2020.00045}.
+
+\bibitem{majumdar2023}
+R.~Majumdar, P.~Rivero, F.~Metz, A.~Hasan, and D.~S.~Wang,
+``Best practices for quantum error mitigation with digital zero-noise
+extrapolation,'' \emph{2023 IEEE International Conference on Quantum
+Computing and Engineering}, 881--887 (2023).
+\href{https://doi.org/10.1109/QCE57702.2023.00102}
+{doi:10.1109/QCE57702.2023.00102}.
+
+\bibitem{cai2021}
+Z.~Cai,
+``Multi-exponential error extrapolation and combining error mitigation
+techniques for NISQ applications,'' \emph{npj Quantum Information}
+\textbf{7}, 80 (2021).
+\href{https://doi.org/10.1038/s41534-021-00404-3}
+{doi:10.1038/s41534-021-00404-3}.
+
+\bibitem{krebsbach2022}
+M.~Krebsbach, B.~Trauzettel, and A.~Calzona,
+``Optimization of Richardson extrapolation for quantum error mitigation,''
+arXiv:2201.08080 (2022). \url{https://arxiv.org/abs/2201.08080}.
+
+\end{thebibliography}
+
+\end{document}
